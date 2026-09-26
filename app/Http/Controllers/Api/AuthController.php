@@ -26,7 +26,13 @@ class AuthController extends Controller
             'password' => $data['password'],
         ]);
 
-        return response()->json(['user' => $user], 201);
+        $token = $user->createToken('flutter-client', $this->abilities($user));
+
+        return response()->json([
+            'token' => $token->plainTextToken,
+            'token_type' => 'Bearer',
+            'user' => $user,
+        ], 201);
     }
 
     public function login(Request $request): JsonResponse
@@ -44,20 +50,27 @@ class AuthController extends Controller
             ]);
         }
 
-        $request->session()->regenerate();
+        $token = $user->createToken('flutter-client', $this->abilities($user));
 
-        return response()->json(['user' => $user]);
+        return response()->json([
+            'token' => $token->plainTextToken,
+            'token_type' => 'Bearer',
+            'user' => $user,
+        ]);
     }
 
     public function logout(Request $request): JsonResponse
     {
         $request->user()?->tokens()->delete();
 
-        auth('web')->logout();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
         return response()->json(['message' => 'Logged out.']);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function abilities(User $user): array
+    {
+        return array_values(array_unique($user->abilityTokens()));
     }
 }

@@ -25,3 +25,17 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Laravel Boost — not regenerated in-repo (moved to C:\code\ai)
+/boost.json
+
+# Flutter client (client/)
+/client/.dart_tool/
+/client/build/
+/client/.flutter-plugins
+/client/.flutter-plugins-dependencies
+/client/.packages
+/client/android/key.properties
+/client/android/keys/
+/client/ios/Flutter/ephemeral/
+/client/web/icons/
