@@ -1,17 +1,8 @@
-# do_an_client
+# HDDShop client (Flutter — `shop_client`)
 
-A new Flutter project.
+Ứng dụng bán hàng đồ điện tử đa nền tảng (Android + Web) — `client/` — Riverpod, go_router, Firebase SDK.
 
-## Getting Started
+Chạy cục bộ: xem `../README.md` (Emulator Suite) — `cd client; flutter run -d chrome`.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `flutter analyze` — static check (0 lỗi).
+- `flutter test` — widget test (login screen).

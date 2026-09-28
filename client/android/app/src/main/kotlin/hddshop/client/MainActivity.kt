@@ -1,4 +1,4 @@
-package vn.tlu.doan.do_an_client
+package hddshop.client
 
 import io.flutter.embedding.android.FlutterActivity
 

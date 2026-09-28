@@ -1,6 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/providers.dart';
 import 'catalog_models.dart';
 
 class CatalogNotifier extends AsyncNotifier<List<CatalogProduct>> {
@@ -10,14 +10,49 @@ class CatalogNotifier extends AsyncNotifier<List<CatalogProduct>> {
   Future<List<CatalogProduct>> build() => _fetch();
 
   Future<List<CatalogProduct>> _fetch() async {
-    final dio = ref.read(dioProvider);
-    final query = <String, dynamic>{};
-    final term = _term.trim();
-    if (term.isNotEmpty) query['search'] = term;
-    final res = await dio.get<Map<String, dynamic>>('/api/catalog', queryParameters: query);
-    final data = res.data!['data'] as List;
-    return data
-        .map((item) => CatalogProduct.fromJson(item as Map<String, dynamic>))
+    final term = _term.trim().toLowerCase();
+    final fs = FirebaseFirestore.instance;
+
+    final productsSnap = await fs
+        .collection('products')
+        .where('store_id', isEqualTo: kStoreId)
+        .where('is_deleted', isEqualTo: false)
+        .get();
+    final invSnap = await fs
+        .collection('inventory')
+        .where('store_id', isEqualTo: kStoreId)
+        .get();
+    final catSnap = await fs
+        .collection('categories')
+        .where('store_id', isEqualTo: kStoreId)
+        .get();
+
+    final stockByProduct = {
+      for (final doc in invSnap.docs)
+        doc.data()['product_id'] as String?:
+            (doc.data()['stock_available'] as num?)?.toInt(),
+    };
+    final categoryNameById = {
+      for (final doc in catSnap.docs)
+        doc.id: (doc.data()['name'] as String?) ?? '',
+    };
+
+    final products = productsSnap.docs
+        .map((doc) {
+          final data = doc.data();
+          return CatalogProduct.fromFirestore(doc.id, data).enriched(
+            categoryName: categoryNameById[data['category_id']],
+            stockAvailable: stockByProduct[doc.id],
+          );
+        })
+        .where((p) => p.isAvailable)
+        .toList();
+
+    if (term.isEmpty) return products;
+    return products
+        .where((p) =>
+            p.name.toLowerCase().contains(term) ||
+            p.sku.toLowerCase().contains(term))
         .toList();
   }
 
@@ -34,12 +69,32 @@ class CatalogNotifier extends AsyncNotifier<List<CatalogProduct>> {
 }
 
 final catalogProvider =
-    AsyncNotifierProvider<CatalogNotifier, List<CatalogProduct>>(CatalogNotifier.new);
+    AsyncNotifierProvider<CatalogNotifier, List<CatalogProduct>>(
+        CatalogNotifier.new);
 
 final catalogDetailProvider =
-    FutureProvider.family<CatalogProduct, int>((ref, id) async {
-  final res = await ref
-      .read(dioProvider)
-      .get<Map<String, dynamic>>('/api/catalog/$id');
-  return CatalogProduct.fromJson(res.data!['data'] as Map<String, dynamic>);
+    FutureProvider.family<CatalogProduct, String>((ref, id) async {
+  final fs = FirebaseFirestore.instance;
+  final doc = await fs.collection('products').doc(id).get();
+  if (!doc.exists) throw Exception('Không tìm thấy sản phẩm.');
+  final data = doc.data()!;
+
+  final invDoc = await fs.collection('inventory').doc('${kStoreId}_$id').get();
+  final specsSnap = await doc.reference.collection('specs').get();
+
+  String? categoryName;
+  final categoryId = data['category_id'] as String?;
+  if (categoryId != null) {
+    final catDoc = await fs.collection('categories').doc(categoryId).get();
+    categoryName = catDoc.data()?['name'] as String?;
+  }
+
+  return CatalogProduct.fromFirestore(doc.id, data).enriched(
+    categoryName: categoryName,
+    stockAvailable: (invDoc.data()?['stock_available'] as num?)?.toInt(),
+    specs: {
+      for (final spec in specsSnap.docs)
+        spec.id: (spec.data()['value'] as String?) ?? '',
+    },
+  );
 });

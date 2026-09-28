@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +9,7 @@ import 'catalog_controller.dart';
 class ProductDetailScreen extends ConsumerWidget {
   const ProductDetailScreen({super.key, required this.productId});
 
-  final int productId;
+  final String productId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +41,7 @@ class ProductDetailScreen extends ConsumerWidget {
         data: (product) => ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            ProductImage(imageUrl: product.imageUrl, height: 260),
+            ProductImage(imageData: product.imageData, height: 260),
             const SizedBox(height: 12),
             Text(
               product.name,
@@ -114,45 +116,46 @@ class ProductDetailScreen extends ConsumerWidget {
 }
 
 class ProductImage extends StatelessWidget {
-  const ProductImage({super.key, this.imageUrl, this.height});
+  const ProductImage({super.key, this.imageData, this.height});
 
-  final String? imageUrl;
+  /// Ảnh base64 nội tuyến (products.image_data). `null`/rỗng → placeholder.
+  final String? imageData;
   final double? height;
 
   @override
   Widget build(BuildContext context) {
-    final url = imageUrl;
-    if (url == null || url.isEmpty) {
-      return Container(
-        height: height,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          Icons.image_outlined,
-          size: 64,
-          color: Theme.of(context).colorScheme.outline,
+    final data = imageData;
+    if (data == null || data.isEmpty) {
+      return _placeholder(context);
+    }
+    try {
+      final bytes = base64Decode(data);
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.memory(
+          bytes,
+          height: height,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _placeholder(context),
         ),
       );
+    } catch (_) {
+      return _placeholder(context);
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.network(
-        url,
-        height: height,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => Container(
-          height: height,
-          alignment: Alignment.center,
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: Icon(
-            Icons.broken_image_outlined,
-            size: 64,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-        ),
+  }
+
+  Widget _placeholder(BuildContext context) {
+    return Container(
+      height: height,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        Icons.image_outlined,
+        size: 64,
+        color: Theme.of(context).colorScheme.outline,
       ),
     );
   }

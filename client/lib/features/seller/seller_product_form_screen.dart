@@ -1,9 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../catalog/catalog_models.dart';
 import '../catalog/product_detail_screen.dart';
@@ -24,12 +21,10 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
   late final TextEditingController _price;
   late final TextEditingController _stock;
   late final TextEditingController _description;
-  int? _categoryId;
+  String? _categoryId;
   bool _saving = false;
 
   final List<MapEntry<TextEditingController, TextEditingController>> _specRows = [];
-
-  XFileBytes? _pickedImage;
 
   bool get _isEdit => widget.product != null;
 
@@ -66,15 +61,6 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-    final bytes = await picked.readAsBytes();
-    setState(() {
-      _pickedImage = XFileBytes(bytes: bytes, name: picked.name);
-    });
-  }
-
   Future<void> _save() async {
     final price = double.tryParse(_price.text.replaceAll('.', ''));
     if (price == null || _name.text.trim().isEmpty || _sku.text.trim().isEmpty) {
@@ -89,8 +75,8 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
         .toList();
 
     try {
-      final saved = _isEdit
-          ? await notifier.updateProduct(
+      await (_isEdit
+          ? notifier.updateProduct(
               widget.product!.id,
               name: _name.text,
               sku: _sku.text,
@@ -99,7 +85,7 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
               categoryId: _categoryId,
               specs: specs,
             )
-          : await notifier.create(
+          : notifier.create(
               name: _name.text,
               sku: _sku.text,
               price: price,
@@ -107,11 +93,7 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
               categoryId: _categoryId,
               stock: int.tryParse(_stock.text.replaceAll('.', '')),
               specs: specs,
-            );
-
-      if (_pickedImage != null) {
-        await notifier.uploadImage(saved.id, _pickedImage!);
-      }
+            ));
 
       await notifier.refresh();
       if (mounted) context.pop();
@@ -138,13 +120,15 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            GestureDetector(
-              onTap: _pickImage,
-              child: _ImageField(
-                product: widget.product,
-                picked: _pickedImage,
-                onPickImage: _pickImage,
-              ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ProductImage(imageData: widget.product?.imageData, height: 180),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Ảnh sản phẩm sẽ được thêm ở giai đoạn sau.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -157,7 +141,11 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
                 Expanded(
                   child: TextFormField(
                     controller: _sku,
-                    decoration: const InputDecoration(labelText: 'SKU *'),
+                    enabled: !_isEdit,
+                    decoration: InputDecoration(
+                      labelText: 'SKU *',
+                      helperText: _isEdit ? 'Không đổi được SKU' : null,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -174,16 +162,16 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<int?>(
+                  child: DropdownButtonFormField<String?>(
                     initialValue: _categoryId,
                     decoration: const InputDecoration(labelText: 'Danh mục'),
                     items: [
-                      const DropdownMenuItem<int?>(
+                      const DropdownMenuItem<String?>(
                         value: null,
                         child: Text('—'),
                       ),
                       ...?categories.value?.map(
-                        (category) => DropdownMenuItem<int?>(
+                        (category) => DropdownMenuItem<String?>(
                           value: category.id,
                           child: Text(category.name),
                         ),
@@ -277,51 +265,6 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ImageField extends StatelessWidget {
-  const _ImageField({
-    required this.product,
-    required this.picked,
-    required this.onPickImage,
-  });
-
-  final CatalogProduct? product;
-  final XFileBytes? picked;
-  final VoidCallback onPickImage;
-
-  @override
-  Widget build(BuildContext context) {
-    final bytes = picked?.bytes;
-    final Widget preview;
-    if (bytes != null) {
-      preview = Image.memory(
-        Uint8List.fromList(bytes),
-        fit: BoxFit.cover,
-      );
-    } else {
-      preview = ProductImage(imageUrl: product?.imageUrl);
-    }
-
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: SizedBox(
-            height: 180,
-            width: double.infinity,
-            child: preview,
-          ),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: onPickImage,
-          icon: const Icon(Icons.photo_library_outlined),
-          label: const Text('Chọn ảnh từ thư viện'),
-        ),
-      ],
     );
   }
 }

@@ -113,7 +113,7 @@ class _SellerProductTile extends StatelessWidget {
         leading: SizedBox(
           width: 56,
           height: 56,
-          child: ProductImage(imageUrl: product.imageUrl),
+          child: ProductImage(imageData: product.imageData),
         ),
         title: Text(product.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(

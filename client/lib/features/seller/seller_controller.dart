@@ -1,26 +1,25 @@
-import 'package:dio/dio.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/providers.dart';
 import '../catalog/catalog_models.dart';
 
 class CategoryItem {
   const CategoryItem({required this.id, required this.name});
 
-  final int id;
+  final String id;
   final String name;
-
-  factory CategoryItem.fromJson(Map<String, dynamic> json) => CategoryItem(
-        id: json['id'] as int,
-        name: json['name'] as String,
-      );
 }
 
 final sellerCategoriesProvider = FutureProvider<List<CategoryItem>>((ref) async {
-  final res = await ref.read(dioProvider).get<Map<String, dynamic>>('/api/categories');
-  final data = res.data!['data'] as List;
-  return data
-      .map((item) => CategoryItem.fromJson(item as Map<String, dynamic>))
+  final snapshot = await FirebaseFirestore.instance
+      .collection('categories')
+      .where('store_id', isEqualTo: kStoreId)
+      .get();
+  return snapshot.docs
+      .map((doc) => CategoryItem(
+            id: doc.id,
+            name: (doc.data()['name'] as String?) ?? '',
+          ))
       .toList();
 });
 
@@ -29,11 +28,23 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
   Future<List<CatalogProduct>> build() => _fetch();
 
   Future<List<CatalogProduct>> _fetch() async {
-    final res =
-        await ref.read(dioProvider).get<Map<String, dynamic>>('/api/seller/products');
-    final data = res.data!['data'] as List;
-    return data
-        .map((item) => CatalogProduct.fromJson(item as Map<String, dynamic>))
+    final snapshot = await FirebaseFirestore.instance
+        .collection('products')
+        .where('store_id', isEqualTo: kStoreId)
+        .where('is_deleted', isEqualTo: false)
+        .get();
+    final stockSnap = await FirebaseFirestore.instance
+        .collection('inventory')
+        .where('store_id', isEqualTo: kStoreId)
+        .get();
+    final stockByProduct = {
+      for (final doc in stockSnap.docs)
+        doc.data()['product_id'] as String?:
+            (doc.data()['stock_available'] as num?)?.toInt(),
+    };
+    return snapshot.docs
+        .map((doc) => CatalogProduct.fromFirestore(doc.id, doc.data())
+            .enriched(stockAvailable: stockByProduct[doc.id]))
         .toList();
   }
 
@@ -41,102 +52,125 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
     state = await AsyncValue.guard(_fetch);
   }
 
+  /// SP mới: docID = slug(SKU) — batch (product + specs + inventory).
   Future<CatalogProduct> create({
     required String name,
     required String sku,
     required double price,
     required String description,
-    int? categoryId,
+    String? categoryId,
     int? stock,
     List<Map<String, String>> specs = const [],
   }) async {
-    final res = await ref.read(dioProvider).post<Map<String, dynamic>>(
-          '/api/seller/products',
-          data: _payload(
-            name: name,
-            sku: sku,
-            price: price,
-            description: description,
-            categoryId: categoryId,
-            stock: stock,
-            specs: specs,
-          ),
-        );
-    return CatalogProduct.fromJson(res.data!['data'] as Map<String, dynamic>);
-  }
+    final fs = FirebaseFirestore.instance;
+    final id = _slugify(sku);
+    final productRef = fs.collection('products').doc(id);
 
-  Future<CatalogProduct> updateProduct(
-    int id, {
-    required String name,
-    required String sku,
-    required double price,
-    required String description,
-    int? categoryId,
-    List<Map<String, String>> specs = const [],
-  }) async {
-    final res = await ref.read(dioProvider).put<Map<String, dynamic>>(
-          '/api/seller/products/$id',
-          data: _payload(
-            name: name,
-            sku: sku,
-            price: price,
-            description: description,
-            categoryId: categoryId,
-            specs: specs,
-          ),
-        );
-    return CatalogProduct.fromJson(res.data!['data'] as Map<String, dynamic>);
-  }
-
-  Future<void> delete(int id) async {
-    await ref.read(dioProvider).delete('/api/seller/products/$id');
-    await refresh();
-  }
-
-  Future<String> uploadImage(int id, XFileBytes file) async {
-    final form = FormData.fromMap({
-      'image': MultipartFile.fromBytes(
-        file.bytes,
-        filename: file.name,
-      ),
-    });
-    final res = await ref.read(dioProvider).post<Map<String, dynamic>>(
-          '/api/seller/products/$id/image',
-          data: form,
-        );
-    return res.data!['image_url'] as String;
-  }
-
-  Map<String, dynamic> _payload({
-    required String name,
-    required String sku,
-    required double price,
-    required String description,
-    int? categoryId,
-    int? stock,
-    List<Map<String, String>> specs = const [],
-  }) {
-    return {
+    final batch = fs.batch();
+    final now = FieldValue.serverTimestamp();
+    batch.set(productRef, {
+      'store_id': kStoreId,
       'category_id': categoryId,
       'sku': sku.trim(),
       'name': name.trim(),
       'description': description.trim(),
       'price': price,
-      'stock': ?stock,
+      'image_data': '',
       'is_available': true,
-      'specs': specs
-          .where((s) => s['key']!.trim().isNotEmpty)
-          .map((s) => {'key': s['key']!.trim(), 'value': s['value']!.trim()})
-          .toList(),
-    };
+      'is_deleted': false,
+      'sort_order': 0,
+      'embedding': <dynamic>[],
+      'created_at': now,
+      'updated_at': now,
+    });
+    _writeSpecs(batch, productRef, specs);
+    batch.set(
+      fs.collection('inventory').doc('${kStoreId}_$id'),
+      {
+        'store_id': kStoreId,
+        'product_id': id,
+        'stock_on_hand': stock ?? 0,
+        'stock_reserved': 0,
+        'stock_available': stock ?? 0,
+        'updated_at': now,
+      },
+    );
+
+    await batch.commit();
+    return _readProduct(id);
+  }
+
+  Future<CatalogProduct> updateProduct(
+    String id, {
+    required String name,
+    required String sku,
+    required double price,
+    required String description,
+    String? categoryId,
+    List<Map<String, String>> specs = const [],
+  }) async {
+    final fs = FirebaseFirestore.instance;
+    final productRef = fs.collection('products').doc(id);
+
+    final batch = fs.batch();
+    batch.update(productRef, {
+      'category_id': categoryId,
+      'name': name.trim(),
+      'description': description.trim(),
+      'price': price,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+    _writeSpecs(batch, productRef, specs);
+
+    await batch.commit();
+    return _readProduct(id);
+  }
+
+  Future<void> delete(String id) async {
+    // Soft delete: ẩn khỏi storefront, giữ lịch sử đơn.
+    await FirebaseFirestore.instance
+        .collection('products')
+        .doc(id)
+        .update({'is_deleted': true});
+    await refresh();
+  }
+
+  void _writeSpecs(
+    WriteBatch batch,
+    DocumentReference<Map<String, dynamic>> productRef,
+    List<Map<String, String>> specs,
+  ) {
+    final specsRef = productRef.collection('specs');
+    for (final spec in specs) {
+      final key = spec['key']?.trim() ?? '';
+      final value = spec['value']?.trim() ?? '';
+      if (key.isEmpty) continue;
+      batch.set(specsRef.doc(key), {'value': value});
+    }
+  }
+
+  Future<CatalogProduct> _readProduct(String id) async {
+    final fs = FirebaseFirestore.instance;
+    final doc = await fs.collection('products').doc(id).get();
+    final invDoc = await fs.collection('inventory').doc('${kStoreId}_$id').get();
+    final specsSnap = await doc.reference.collection('specs').get();
+    return CatalogProduct.fromFirestore(doc.id, doc.data()!).enriched(
+      stockAvailable: (invDoc.data()?['stock_available'] as num?)?.toInt(),
+      specs: {
+        for (final spec in specsSnap.docs)
+          spec.id: (spec.data()['value'] as String?) ?? '',
+      },
+    );
   }
 }
 
-class XFileBytes {
-  const XFileBytes({required this.bytes, required this.name});
-
-  final List<int> bytes;
-  final String name;
+String _slugify(String value) {
+  final slug = value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  return slug.isEmpty ? 'product-${DateTime.now().millisecondsSinceEpoch}' : slug;
 }
 
 final sellerProductsProvider =

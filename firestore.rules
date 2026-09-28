@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── helper ─────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function hasAny(claims) {
+      return isAuth() && request.auth.token.keys().hasAny(claims);
+    }
+    function hasClaim(claim) {
+      return isAuth() && claim in request.auth.token;
+    }
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+    function isStaff() {
+      return hasAny(['system_admin', 'seller', 'shipper', 'viewer']);
+    }
+    function isStoreStaff() {
+      return hasAny(['system_admin', 'seller', 'shipper', 'viewer']);
+    }
+    function isSellerOrAdmin() {
+      return hasClaim('system_admin') || hasClaim('seller');
+    }
+    function notDeleted() {
+      // soft delete: ghi là is_deleted để ẩn (không xóa doc)
+      return !('is_deleted' in resource.data) || resource.data.is_deleted == false;
+    }
+
+    // ── Nhóm A: định danh & phân quyền ─────────────────────────
+    match /roles/{slug} {
+      allow read: if true;                    // config public để hiển thị
+      allow write: if false;                  // chỉ Functions (admin)
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isStaff();
+      // fix bug register: `create` phải cho phép email + created_at
+      // (client register ghi {name, email, phone, is_active, created_at})
+      allow create: if isOwner(uid)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(['name','phone','email','is_active','created_at']);
+      allow update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['name','phone','avatar_url','is_active']);
+      allow delete: if false;
+      match /roles/{roleId} {
+        allow read: if isOwner(uid) || isStaff();
+        allow write: if false;                // chỉ Functions (System Admin gán claims)
+      }
+      match /addresses/{addrId} {
+        allow read, update, delete: if isOwner(uid);
+        allow create: if isOwner(uid);
+      }
+    }
+
+    match /stores/{storeId} {
+      allow read: if true;                    // storefront công khai
+      allow write: if false;                  // chỉ Functions (staff)
+      match /settings/{key} {
+        allow read: if true;                  // public config (giờ mở, phí giao, VietQR)
+        allow write: if false;
+      }
+      match /delivery_zones/{zoneId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // ── Nhóm B: catalog (đọc công khai) ────────────────────────
+    match /categories/{catId} {
+      allow read: if true;
+      allow write: if false;                  // CRUD qua Cloud Function (Seller)
+    }
+
+    match /products/{productId} {
+      allow read: if true && notDeleted();
+      allow write: if false;                  // CRUD qua Cloud Function (Seller)
+      match /specs/{specKey} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // ── Nhóm C: kho (tồn là data công khai) ────────────────────
+    match /inventory/{storeId_productId} {
+      allow read: if true;                    // số tồn public (stock_available)
+      allow write: if false;                  // chỉ Functions (transaction)
+    }
+
+    match /stock_movements/{movementId} {
+      allow read: if isStoreStaff();
+      allow write: if false;                  // chỉ Functions
+    }
+
+    // ── Nhóm D: giỏ & đơn (owner / staff) ──────────────────────
+    match /users/{uid}/carts/active {
+      allow read, update, delete: if isOwner(uid);
+      allow create: if isOwner(uid);
+      match /items/{productId} {
+        allow read, update, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['quantity', 'created_at']);
+      }
+    }
+
+    match /orders/{orderId} {
+      allow read: if isOwner(resource.data.user_id) || isStoreStaff();
+      allow write: if false;                  // tạo/cập nhật qua Cloud Function createOrder/…
+      match /items/{productId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.user_id) || isStoreStaff();
+        allow write: if false;
+      }
+      match /history/{entryId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.user_id) || isStoreStaff();
+        allow write: if false;
+      }
+    }
+
+    // ── Nhóm E: giao hàng (staff) ──────────────────────────────
+    match /deliveries/{orderId} {
+      allow read: if isStoreStaff();
+      allow write: if false;                  // chỉ Functions (assign/status)
+    }
+
+    // ── Nhóm F: thanh toán (staff + owner xem trạng thái) ──────
+    match /payments/{orderId} {
+      allow read: if isStoreStaff()
+        || isOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.user_id);
+      allow write: if false;                  // chỉ Functions (confirmPayment/refund)
+    }
+
+    // ── Nhóm G: chat & audit ───────────────────────────────────
+    match /chat_conversations/{convId} {
+      allow read: if isOwner(resource.data.user_id) || hasClaim('system_admin');
+      allow create: if isOwner(request.resource.data.user_id);
+      allow update, delete: if false;
+      match /messages/{messageId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/chat_conversations/$(convId)).data.user_id)
+          || hasClaim('system_admin');
+        // khách tự gửi tin (role=user); assistant do Cloud Function ghi
+        allow create: if isOwner(get(/databases/$(database)/documents/chat_conversations/$(convId)).data.user_id)
+          && request.resource.data.role == 'user'
+          && request.resource.data.keys().hasOnly(['role', 'content', 'created_at']);
+        allow update, delete: if false;
+      }
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isStoreStaff();
+      allow write: if false;                  // chỉ Functions
+    }
+  }
+}

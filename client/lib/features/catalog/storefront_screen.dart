@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -138,7 +139,7 @@ class _ProductCard extends StatelessWidget {
             Expanded(
               child: SizedBox(
                 width: double.infinity,
-                child: _ProductImage(imageUrl: product.imageUrl),
+                child: _ProductImage(imageData: product.imageData),
               ),
             ),
             Padding(
@@ -182,14 +183,14 @@ class _ProductCard extends StatelessWidget {
 }
 
 class _ProductImage extends StatelessWidget {
-  const _ProductImage({this.imageUrl});
+  const _ProductImage({this.imageData});
 
-  final String? imageUrl;
+  final String? imageData;
 
   @override
   Widget build(BuildContext context) {
-    final url = imageUrl;
-    if (url == null || url.isEmpty) {
+    final data = imageData;
+    if (data == null || data.isEmpty) {
       return Container(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Icon(
@@ -199,18 +200,30 @@ class _ProductImage extends StatelessWidget {
         ),
       );
     }
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(
+    try {
+      final bytes = base64Decode(data);
+      return Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => Container(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Icon(
+            Icons.broken_image_outlined,
+            size: 48,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+        ),
+      );
+    } catch (_) {
+      return Container(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Icon(
           Icons.broken_image_outlined,
           size: 48,
           color: Theme.of(context).colorScheme.outline,
         ),
-      ),
-    );
+      );
+    }
   }
 }
 
