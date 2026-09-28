@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
-import 'firebase_options.dart';
+import '../../firebase_options.dart';
 
 /// Chạy với Emulator Suite (`firebase emulators:start`) hay project thật?
 /// Default: emulator (dev). Đặt `--dart-define=USE_FIREBASE_EMULATOR=false`
@@ -25,7 +25,7 @@ String get emulatorHost {
 Future<void> ensureFirebaseInitialized() async {
   if (Firebase.apps.isNotEmpty) return;
 
-  await Firebase.initializeApp(options: AppFirebaseOptions.current);
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   if (useFirebaseEmulators) {
     try {

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "594463240617",
+    "project_id": "hddshop-bea07",
+    "storage_bucket": "hddshop-bea07.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594463240617:android:da3ca6ed820b1da510d4b8",
+        "android_client_info": {
+          "package_name": "hddshop.client"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBt3cMGfxinoJ4i3P3ALBhSn4MgJPG7huA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -37,8 +37,8 @@ firebase emulators:start
 cd client; flutter run -d chrome
 ```
 
-> Lưu ý: `client/lib/core/firebase/firebase_options.dart` đang là **placeholder**.
-> Chạy `firebase login && firebase use hddshop-bea07 && flutterfire configure` để tạo bản thật
-> (khi có project thật) — app vẫn chạy tốt trên emulator mà không cần bước này.
+> `client/lib/firebase_options.dart` do `flutterfire configure` sinh ra (project `hddshop-bea07`,
+> android app `hddshop.client` + web app `shop_client`). Muốn regenerate:
+> `firebase login && firebase use hddshop-bea07 && flutterfire configure`.
 > Emulator test nhanh (smoke): `firebase emulators:exec --only auth,firestore,functions `
 > `"powershell -NoProfile -File <path>/emulator_smoke.ps1"` (script nằm ngoài repo, thư mục temp).
