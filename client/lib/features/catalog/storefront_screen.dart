@@ -32,8 +32,10 @@ class _StorefrontScreenState extends ConsumerState<StorefrontScreen> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), () {
-      ref.read(catalogProvider.notifier).search(value);
+    // Chỉ đổi từ khoá trong bộ nhớ, không gọi Firestore: listener đã giữ
+    // sẵn toàn bộ catalog nên lọc tại đó tốn 0 read và phản hồi tức thì.
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) ref.read(catalogSearchProvider.notifier).update(value);
     });
   }
 
@@ -101,7 +103,7 @@ class _StorefrontScreenState extends ConsumerState<StorefrontScreen> {
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
-                          ref.read(catalogProvider.notifier).search('');
+                          ref.read(catalogSearchProvider.notifier).clear();
                         },
                       ),
                 border: OutlineInputBorder(
@@ -116,17 +118,17 @@ class _StorefrontScreenState extends ConsumerState<StorefrontScreen> {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, _) => _ErrorView(
                 message: error.toString(),
-                onRetry: () => ref.read(catalogProvider.notifier).refresh(),
+                onRetry: () => refetchCatalog(ref),
               ),
               data: (products) => products.isEmpty
                   ? _EmptyView(
                       onClear: () {
                         _searchController.clear();
-                        ref.read(catalogProvider.notifier).search('');
+                        ref.read(catalogSearchProvider.notifier).clear();
                       },
                     )
                   : RefreshIndicator(
-                      onRefresh: () => ref.read(catalogProvider.notifier).refresh(),
+                      onRefresh: () async => refetchCatalog(ref),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final width = constraints.maxWidth;

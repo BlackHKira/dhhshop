@@ -1,0 +1,89 @@
+name: CI
+
+# Chạy khi push lên BẤT KỲ branch, không chỉ main.
+#
+# Lý do không bám vào `pull_request` một mình: cách GitHub chọn định nghĩa
+# workflow cho sự kiện đó khác nhau giữa PR cùng repo và PR từ fork, và bỏ
+# nhầm thì CI im lặng đúng lúc cần nhất. `push` thì chắc chắn chạy, và
+# nhánh vừa đẩy lên luôn có kết quả để PR hiển thị. `pull_request` giữ lại
+# cho trường hợp mở PR mà không push thêm commit nào.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+# Đẩy lại trên cùng một ref thì hủy run cũ cho khỏi tốn phút máy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    name: Security Rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      # Firestore Emulator chạy bằng Java, mà firebase-tools 15.x từ chối
+      # Java < 21. Đặt sẵn ở đây để mọi bước sau đều dùng đúng.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Emulator tải file JAR (~100 MB) về ~/.cache/firebase/emulators ở lần
+      # chạy đầu. Cache lại theo lockfile để lần sau khỏi tải lại.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('package-lock.json') }}
+
+      # Dùng `emulators:exec` thay vì bật emulator nền rồi tắt: đảm bảo
+      # emulator luôn dừng và không kẹt cổng giữa các lần chạy.
+      - name: Chay bo kiem thu Rules tren Emulator
+        run: npm run test:rules:emulator
+
+      # Log này chứa lý do Rules chặn từng phép thử — là thứ duy nhất giúp
+      # đọc được vì sao một phép thử đỏ, nên giữ lại khi thất bại.
+      - name: Tai len firestore-debug.log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: firestore-debug-log
+          path: firestore-debug.log
+
+  client:
+    name: Flutter - analyze / test / build web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+
+      - run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test
+
+      # Không deploy ở đây — chỉ chắc là build được. Bước này bắt được loại
+      # lỗi mà analyze và test không thấy: thiếu asset, và lỗi chỉ nổ ra khi
+      # biên dịch ra web (Dart có phần khác với JS).
+      - name: flutter build web
+        run: flutter build web --release

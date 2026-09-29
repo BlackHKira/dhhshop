@@ -9,3 +9,9 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+
+# Lockfile dài 9 nghìn dòng. Không coi là text thì git hiện nó thành MỘT
+# dòng trong diff của pull request, thay vì làm nghẹp toàn bộ phần thay đổi
+# đáng đọc. Chỉ đặt `-diff`, không đặt `-merge`: còn giữ được khả năng tự
+# merge khi hai nhánh cùng sửa lockfile.
+package-lock.json -diff
