@@ -2,7 +2,7 @@
   "name": "dhhshop",
   "version": "1.0.0",
   "private": true,
-  "description": "DHHShop - ung dung ban hang cong nghe (Flutter + Firebase). Repo nay chua client Flutter, Cloud Functions (chi chay tren Emulator) va bo kiem thu Security Rules.",
+  "description": "DHHShop — ứng dụng bán hàng công nghệ (Flutter + Firebase). Repo này chứa client Flutter, Cloud Functions (chỉ chạy trên Emulator) và bộ kiểm thử Security Rules.",
   "scripts": {
     "test:rules": "node test/rules.test.mjs",
     "test:rules:emulator": "firebase emulators:exec --only firestore,auth --project demo-dhhshop \"npm run test:rules\""
