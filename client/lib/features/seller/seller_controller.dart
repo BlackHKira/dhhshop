@@ -11,10 +11,8 @@ class CategoryItem {
 }
 
 final sellerCategoriesProvider = FutureProvider<List<CategoryItem>>((ref) async {
-  final snapshot = await FirebaseFirestore.instance
-      .collection('categories')
-      .where('store_id', isEqualTo: kStoreId)
-      .get();
+  final snapshot =
+      await FirebaseFirestore.instance.collection('categories').get();
   return snapshot.docs
       .map((doc) => CategoryItem(
             id: doc.id,
@@ -30,13 +28,10 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
   Future<List<CatalogProduct>> _fetch() async {
     final snapshot = await FirebaseFirestore.instance
         .collection('products')
-        .where('store_id', isEqualTo: kStoreId)
-        .where('is_deleted', isEqualTo: false)
+        .where('deleted_at', isEqualTo: null)
         .get();
-    final stockSnap = await FirebaseFirestore.instance
-        .collection('inventory')
-        .where('store_id', isEqualTo: kStoreId)
-        .get();
+    final stockSnap =
+        await FirebaseFirestore.instance.collection('inventory').get();
     final stockByProduct = {
       for (final doc in stockSnap.docs)
         doc.data()['product_id'] as String?:
@@ -66,10 +61,15 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
     final id = _slugify(sku);
     final productRef = fs.collection('products').doc(id);
 
+    // Rules đòi `category_id is string`; form đã chặn nhưng controller
+    // chặn lần nữa để không gửi write chắc chắn bị từ chối.
+    if (categoryId == null || categoryId.isEmpty) {
+      throw StateError('Sản phẩm phải có danh mục.');
+    }
+
     final batch = fs.batch();
     final now = FieldValue.serverTimestamp();
     batch.set(productRef, {
-      'store_id': kStoreId,
       'category_id': categoryId,
       'sku': sku.trim(),
       'name': name.trim(),
@@ -77,17 +77,17 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
       'price': price,
       'image_data': '',
       'is_available': true,
-      'is_deleted': false,
       'sort_order': 0,
       'embedding': <dynamic>[],
+      'deleted_at': null,
       'created_at': now,
       'updated_at': now,
     });
     _writeSpecs(batch, productRef, specs);
+    // docID của `inventory` là productId (không còn tiền tố storeId).
     batch.set(
-      fs.collection('inventory').doc('${kStoreId}_$id'),
+      fs.collection('inventory').doc(id),
       {
-        'store_id': kStoreId,
         'product_id': id,
         'stock_on_hand': stock ?? 0,
         'stock_reserved': 0,
@@ -112,9 +112,14 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
     final fs = FirebaseFirestore.instance;
     final productRef = fs.collection('products').doc(id);
 
+    if (categoryId == null || categoryId.isEmpty) {
+      throw StateError('Sản phẩm phải có danh mục.');
+    }
+
     final batch = fs.batch();
     batch.update(productRef, {
       'category_id': categoryId,
+      'sku': sku.trim(),
       'name': name.trim(),
       'description': description.trim(),
       'price': price,
@@ -131,7 +136,7 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
     await FirebaseFirestore.instance
         .collection('products')
         .doc(id)
-        .update({'is_deleted': true});
+        .update({'deleted_at': FieldValue.serverTimestamp()});
     await refresh();
   }
 
@@ -152,7 +157,7 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
   Future<CatalogProduct> _readProduct(String id) async {
     final fs = FirebaseFirestore.instance;
     final doc = await fs.collection('products').doc(id).get();
-    final invDoc = await fs.collection('inventory').doc('${kStoreId}_$id').get();
+    final invDoc = await fs.collection('inventory').doc(id).get();
     final specsSnap = await doc.reference.collection('specs').get();
     return CatalogProduct.fromFirestore(doc.id, doc.data()!).enriched(
       stockAvailable: (invDoc.data()?['stock_available'] as num?)?.toInt(),

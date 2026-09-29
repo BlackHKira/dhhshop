@@ -2,35 +2,45 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// Ba vai trò của hệ thống. Trùng với `validRole()` trong `firestore.rules`
+/// và với §6 của `de-tai-tong-the.md` (đã bỏ `system_admin`, `shipper`,
+/// `viewer` vì cửa hàng tự giao và chỉ có một cửa hàng).
+enum UserRole {
+  customer,
+  seller,
+  admin;
+
+  static UserRole fromFirestore(Object? raw) => switch (raw) {
+        'seller' => UserRole.seller,
+        'admin' => UserRole.admin,
+        _ => UserRole.customer,
+      };
+}
+
 class AppUser {
   const AppUser({
     required this.uid,
-    required this.name,
+    required this.displayName,
     required this.email,
-    this.roles = const {},
+    required this.role,
   });
 
   final String uid;
-  final String name;
+
+  /// `users/{uid}.display_name`
+  final String displayName;
   final String email;
-  final Set<String> roles;
 
-  bool hasRole(String role) => roles.contains(role);
+  /// `users/{uid}.role` — Security Rules đọc đúng trường này
+  /// (`function role()`), nên client phải đọc cũng trường này.
+  final UserRole role;
 
-  bool isStoreStaff() =>
-      hasRole('system_admin') ||
-      hasRole('seller') ||
-      hasRole('shipper') ||
-      hasRole('viewer');
+  bool isSeller() => role == UserRole.seller;
+  bool isAdmin() => role == UserRole.admin;
+
+  /// seller + admin = mọi quyền vận hành cửa hàng (khớp `isStaff()`).
+  bool isStaff() => isSeller() || isAdmin();
 }
-
-const Set<String> _knownRoles = {
-  'system_admin',
-  'customer',
-  'seller',
-  'shipper',
-  'viewer',
-};
 
 sealed class AuthState {
   const AuthState();
@@ -75,12 +85,6 @@ class AuthController extends Notifier<AuthState> {
     }
     state = const AuthLoading();
     try {
-      final idToken = await user.getIdTokenResult();
-      final claims = idToken.claims ?? const <String, dynamic>{};
-      final roles = <String>{
-        for (final claim in _knownRoles)
-          if (claims[claim] == true) claim,
-      };
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -89,9 +93,11 @@ class AuthController extends Notifier<AuthState> {
       state = AuthSuccess(
         AppUser(
           uid: user.uid,
-          name: (data['name'] as String?) ?? user.displayName ?? '',
+          displayName: (data['display_name'] as String?) ??
+              user.displayName ??
+              '',
           email: user.email ?? (data['email'] as String?) ?? '',
-          roles: roles,
+          role: UserRole.fromFirestore(data['role']),
         ),
       );
     } catch (_) {
@@ -125,12 +131,17 @@ class AuthController extends Notifier<AuthState> {
         return;
       }
       await user.updateDisplayName(name.trim());
+      // Bắt buộc đủ field mà `firestore.rules` đòi ở `users/{uid}` create:
+      // role == 'customer', email khác rỗng, is_active == true,
+      // created_at == request.time. Thiếu `role` là đăng ký bị chặn.
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'name': name.trim(),
+        'display_name': name.trim(),
         'email': user.email ?? '',
         'phone': '',
+        'role': UserRole.customer.name,
         'is_active': true,
         'created_at': FieldValue.serverTimestamp(),
+        'deleted_at': null,
       });
     } on FirebaseAuthException catch (e) {
       state = AuthError(_message(e));
@@ -166,9 +177,4 @@ final authControllerProvider =
 final authUserProvider = Provider<AppUser?>((ref) {
   final state = ref.watch(authControllerProvider);
   return state is AuthSuccess ? state.user : null;
-});
-
-final authLoadingProvider = Provider<bool>((ref) {
-  final state = ref.watch(authControllerProvider);
-  return state is AuthLoading;
 });

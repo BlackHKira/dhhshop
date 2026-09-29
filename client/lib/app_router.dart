@@ -16,11 +16,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/login',
     refreshListenable: _AuthRefreshNotifier(ref),
     redirect: (context, state) {
-      final loggedIn = ref.read(authControllerProvider) is AuthSuccess;
+      final state0 = ref.read(authControllerProvider);
+      final loggedIn = state0 is AuthSuccess;
       final onAuthPage = state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
       if (!loggedIn && !onAuthPage) return '/login';
       if (loggedIn && onAuthPage) return StorefrontScreen.route;
+
+      // Đây chỉ là chặn ở tầng UI cho giao diện gọn; Security Rules mới là
+      // nơi thật sự chặn dữ liệu (seller không đọc/ghi được ngoài phạm vi).
+      final inSellerArea = state.matchedLocation.startsWith('/seller');
+      if (loggedIn && inSellerArea && !state0.user.isStaff()) {
+        return StorefrontScreen.route;
+      }
       return null;
     },
     routes: [

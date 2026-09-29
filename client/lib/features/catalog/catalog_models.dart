@@ -1,10 +1,13 @@
-/// ID cửa hàng chính (theo seed `stores/main`).
-const String kStoreId = 'main';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+/// DocID cố định của cửa hàng trong `settings/store`.
+/// MVP chỉ có MỘT cửa hàng nên mọi doc khác không mang `store_id`
+/// (xem `de-tai-tong-the.md` §"Vì sao bỏ store_id khỏi mọi doc").
+const String kStoreDocId = 'store';
 
 class CatalogProduct {
   const CatalogProduct({
     required this.id,
-    required this.storeId,
     required this.name,
     required this.sku,
     required this.description,
@@ -14,12 +17,12 @@ class CatalogProduct {
     this.categoryName,
     this.imageData,
     this.stockAvailable,
+    this.deletedAt,
     this.specs = const {},
   });
 
   /// docID Firestore = slug của sản phẩm (chống trùng).
   final String id;
-  final String storeId;
   final String? categoryId;
   final String? categoryName;
   final String name;
@@ -27,11 +30,14 @@ class CatalogProduct {
   final String description;
   final double price;
 
-  /// Ảnh base64 nén nội tuyến (`products.image_data` — Phase 4, F1 để trống).
+  /// Ảnh base64 nén nội tuyến (`products.image_data`).
   final String? imageData;
   final bool isAvailable;
 
-  /// Tồn khả dụng (join từ `inventory/{storeId}_{productId}` — public read).
+  /// Xoá mềm: `deleted_at` có giá trị nghĩa là sản phẩm đã bị ẩn.
+  final Timestamp? deletedAt;
+
+  /// Tồn khả dụng (join từ `inventory/{productId}` — public read).
   final int? stockAvailable;
 
   /// Thông số kỹ thuật (subcollection `products/{id}/specs`).
@@ -40,7 +46,6 @@ class CatalogProduct {
   factory CatalogProduct.fromFirestore(String id, Map<String, dynamic> data) {
     return CatalogProduct(
       id: id,
-      storeId: (data['store_id'] as String?) ?? '',
       categoryId: data['category_id'] as String?,
       categoryName: null,
       name: (data['name'] as String?) ?? '',
@@ -49,6 +54,7 @@ class CatalogProduct {
       price: (data['price'] as num?)?.toDouble() ?? 0,
       imageData: data['image_data'] as String?,
       isAvailable: (data['is_available'] as bool?) ?? true,
+      deletedAt: data['deleted_at'] as Timestamp?,
       stockAvailable: null,
       specs: const {},
     );
@@ -61,7 +67,6 @@ class CatalogProduct {
   }) {
     return CatalogProduct(
       id: id,
-      storeId: storeId,
       categoryId: categoryId,
       categoryName: categoryName ?? this.categoryName,
       name: name,
@@ -70,6 +75,7 @@ class CatalogProduct {
       price: price,
       imageData: imageData,
       isAvailable: isAvailable,
+      deletedAt: deletedAt,
       stockAvailable: stockAvailable ?? this.stockAvailable,
       specs: specs ?? this.specs,
     );

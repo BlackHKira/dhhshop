@@ -44,16 +44,43 @@ class _StorefrontScreenState extends ConsumerState<StorefrontScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(user == null ? 'Cửa hàng' : 'Cửa hàng · ${user.name}'),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.electric_bolt,
+                size: 18,
+                color: Theme.of(context).colorScheme.onPrimary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'DHHShop',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.inventory_2_outlined),
-            tooltip: 'Quản lý sản phẩm',
-            onPressed: () => context.push('/seller'),
-          ),
+          // Chỉ seller/admin mới thấy nút quản lý sản phẩm.
+          if (user?.isStaff() ?? false)
+            IconButton(
+              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Quản lý sản phẩm',
+              onPressed: () => context.push('/seller'),
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
-            tooltip: 'Đăng xuất',
+            tooltip: user == null
+                ? 'Đăng xuất'
+                : 'Đăng xuất · ${user.displayName}',
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),
           ),
         ],
@@ -100,18 +127,38 @@ class _StorefrontScreenState extends ConsumerState<StorefrontScreen> {
                     )
                   : RefreshIndicator(
                       onRefresh: () => ref.read(catalogProvider.notifier).refresh(),
-                      child: GridView.builder(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(12),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 0.62,
-                        ),
-                        itemCount: products.length,
-                        itemBuilder: (context, index) =>
-                            _ProductCard(product: products[index]),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final width = constraints.maxWidth;
+                          final crossAxisCount = width < 600
+                              ? 2
+                              : width < 900
+                                  ? 3
+                                  : width < 1300
+                                      ? 4
+                                      : width < 1700
+                                          ? 5
+                                          : 6;
+                          final childAspectRatio = width < 600
+                              ? 0.62
+                              : width < 900
+                                  ? 0.75
+                                  : 0.85;
+                          return GridView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.all(12),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: crossAxisCount,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: childAspectRatio,
+                            ),
+                            itemCount: products.length,
+                            itemBuilder: (context, index) =>
+                                _ProductCard(product: products[index]),
+                          );
+                        },
                       ),
                     ),
             ),

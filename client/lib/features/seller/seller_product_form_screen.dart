@@ -67,6 +67,12 @@ class _SellerProductFormScreenState extends ConsumerState<SellerProductFormScree
       _showError('Vui lòng nhập đầy đủ tên, mã SKU và giá hợp lệ.');
       return;
     }
+    // `firestore.rules` bắt buộc `products.category_id is string` — bỏ trống
+    // thì Rules chặn, nên chặn ngay ở form để khỏi gửi lên rồi mới nhận lỗi.
+    if (_categoryId == null || _categoryId!.isEmpty) {
+      _showError('Vui lòng chọn danh mục sản phẩm.');
+      return;
+    }
 
     setState(() => _saving = true);
     final notifier = ref.read(sellerProductsProvider.notifier);

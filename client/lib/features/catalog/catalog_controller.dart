@@ -13,19 +13,14 @@ class CatalogNotifier extends AsyncNotifier<List<CatalogProduct>> {
     final term = _term.trim().toLowerCase();
     final fs = FirebaseFirestore.instance;
 
+    // Một cửa hàng → không lọc `store_id`. Sản phẩm đã xoá mềm thì loại ra
+    // ở client: `deleted_at == null` mới hiện.
     final productsSnap = await fs
         .collection('products')
-        .where('store_id', isEqualTo: kStoreId)
-        .where('is_deleted', isEqualTo: false)
+        .where('deleted_at', isEqualTo: null)
         .get();
-    final invSnap = await fs
-        .collection('inventory')
-        .where('store_id', isEqualTo: kStoreId)
-        .get();
-    final catSnap = await fs
-        .collection('categories')
-        .where('store_id', isEqualTo: kStoreId)
-        .get();
+    final invSnap = await fs.collection('inventory').get();
+    final catSnap = await fs.collection('categories').get();
 
     final stockByProduct = {
       for (final doc in invSnap.docs)
@@ -79,7 +74,7 @@ final catalogDetailProvider =
   if (!doc.exists) throw Exception('Không tìm thấy sản phẩm.');
   final data = doc.data()!;
 
-  final invDoc = await fs.collection('inventory').doc('${kStoreId}_$id').get();
+  final invDoc = await fs.collection('inventory').doc(id).get();
   final specsSnap = await doc.reference.collection('specs').get();
 
   String? categoryName;
