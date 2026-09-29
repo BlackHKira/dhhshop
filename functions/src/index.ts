@@ -9,39 +9,48 @@ const db = getFirestore();
 const auth = getAuth();
 const now = () => FieldValue.serverTimestamp();
 
-// ── Phase 2 seed: roles + store + settings + zones + catalog + inventory + demo users ──
+/* ══════════════════════════════════════════════════════════════
+   Seed cho FIRESTORE EMULATOR (dev/test) — không deploy production.
+   Gói Spark không có Cloud Functions ở production; chạy thật bằng
+   scripts/seed_production.mjs (Admin SDK local) hoặc script client.
 
-const ROLES: { slug: string; name: string; scope: string; description: string }[] = [
-  { slug: 'system_admin', name: 'System Admin', scope: 'system', description: 'Quản trị toàn hệ thống' },
-  { slug: 'customer', name: 'Customer', scope: 'system', description: 'Khách hàng' },
-  { slug: 'seller', name: 'Seller', scope: 'store', description: 'Nhân viên bán hàng / cửa hàng' },
-  { slug: 'shipper', name: 'Shipper', scope: 'store', description: 'Giao hàng' },
-  { slug: 'viewer', name: 'Viewer', scope: 'store', description: 'Chỉ xem' },
+   Mô hình dữ liệu — đồ án chỉ có MỘT cửa hàng:
+     - KHÔNG có collection `roles`; vai trò là `users/{uid}.role`.
+     - KHÔNG có collection `stores`; cấu hình ở `settings/store`.
+     - KHÔNG dùng custom claims; Rules đọc thẳng doc user.
+     - Không doc nào mang `store_id`; `inventory` docID = productId.
+     - Xoá mềm dùng `deleted_at` (null = còn bán).
+   ══════════════════════════════════════════════════════════════ */
+
+const DEMO_USERS: { email: string; password: string; name: string; role: string }[] = [
+  { email: 'admin@demo.com', password: 'admin123', name: 'Admin', role: 'admin' },
+  { email: 'seller@demo.com', password: 'seller123', name: 'Seller', role: 'seller' },
+  { email: 'customer@demo.com', password: 'customer123', name: 'Khách hàng', role: 'customer' },
 ];
 
-const DEMO_USERS: { email: string; password: string; name: string; claim: string }[] = [
-  { email: 'admin@demo.com', password: 'admin123', name: 'Admin', claim: 'system_admin' },
-  { email: 'seller@demo.com', password: 'seller123', name: 'Seller', claim: 'seller' },
-  { email: 'shipper@demo.com', password: 'shipper123', name: 'Shipper', claim: 'shipper' },
-  { email: 'viewer@demo.com', password: 'viewer123', name: 'Viewer', claim: 'viewer' },
-  { email: 'customer@demo.com', password: 'customer123', name: 'Customer', claim: 'customer' },
-];
+/** docID cố định của cấu hình cửa hàng. */
+const STORE_DOC_ID = 'store';
 
-const STORE = { id: 'main', name: 'Cửa hàng Điện tử DH', slug: 'hddshop' };
+const STORE = {
+  name: 'Cửa hàng Điện tử DH',
+  phone: '0918433866',
+  address: 'Số 1, Đống Đa, Hà Nội',
+};
 
+/* `bank_*` là dữ liệu CÔNG KHAI để client dựng payload VietQR — không phải secret. */
 const SETTINGS: Record<string, unknown> = {
   opening_hours: { mon_fri: '08:00-20:00', sat_sun: '09:00-18:00' },
   delivery_fee_flat: 25000,
   bank_bin: '970422',
   bank_account_no: '0123456789',
-  bank_account_name: 'HOANG DUY HUY',
+  bank_account_name: 'ĐẶNG HUY HOÀNG',
 };
 
 const ZONES: {
   id: string; name: string; city: string; district: string; delivery_fee: number; is_active: boolean;
 }[] = [
   { id: 'ha_noi_dong_da', name: 'Nội thành Hà Nội', city: 'Hà Nội', district: 'Đống Đa', delivery_fee: 15000, is_active: true },
-  { id: 'ha_noi_toan', name: 'Hà Nội toàn TP', city: 'Hà Nội', district: '', delivery_fee: 30000, is_active: true },
+  { id: 'ha_noi_toan', name: 'Hà Nội toàn TP', city: 'Hà Nội', district: 'Toàn TP', delivery_fee: 30000, is_active: true },
 ];
 
 const CATEGORIES: { slug: string; name: string }[] = [
@@ -72,79 +81,89 @@ export const ping = onRequest((_req, res) => {
 
 export const seedDemoData = onCall(async (request) => {
   const isEmulator = !!process.env.FUNCTIONS_EMULATOR;
-  const isAdminCaller =
-    !!request.auth && request.auth.token && request.auth.token.system_admin === true;
-  if (!isEmulator && !isAdminCaller) {
-    throw new HttpsError('permission-denied', 'Chỉ System Admin được seed dữ liệu demo.');
+  if (!isEmulator) {
+    throw new HttpsError('failed-precondition',
+      'Chỉ chạy được trên Emulator. Production dùng scripts/seed_production.mjs.');
   }
 
-  const storeRef = db.collection('stores').doc(STORE.id);
+  const storeRef = db.collection('settings').doc(STORE_DOC_ID);
   const storeSnap = await storeRef.get();
   const storeExists = storeSnap.exists;
 
-  await db.runTransaction(async (tx) => {
-    for (const role of ROLES) {
-      tx.set(db.collection('roles').doc(role.slug), role);
-    }
-
-    // Store + catalog chỉ ghi khi chưa tồn tại → seed lần 2 không ghi đè
-    // sản phẩm/giá sau khi đã chỉnh sửa thật.
-    if (storeExists) return;
-
-    tx.set(storeRef, {
-      name: STORE.name,
-      slug: STORE.slug,
-      is_active: true,
-      created_at: now(),
-    });
-
-    for (const [key, value] of Object.entries(SETTINGS)) {
-      tx.set(storeRef.collection('settings').doc(key), { value });
-    }
-    for (const z of ZONES) {
-      tx.set(storeRef.collection('delivery_zones').doc(z.id), {
-        name: z.name, city: z.city, district: z.district,
-        delivery_fee: z.delivery_fee, is_active: z.is_active,
-      });
-    }
-    for (const role of ROLES) {
-      tx.set(db.collection('roles').doc(role.slug), role);
-    }
-    for (const c of CATEGORIES) {
-      tx.set(db.collection('categories').doc(c.slug), {
-        store_id: STORE.id, name: c.name, sort_order: 0, is_active: true,
-      });
-    }
-    for (const p of PRODUCTS) {
-      const ref = db.collection('products').doc(p.slug);
-      tx.set(ref, {
-        store_id: STORE.id,
-        category_id: p.category,
-        sku: p.sku,
-        name: p.name,
-        description: p.name,
-        price: p.price,
-        image_data: '',
-        is_available: true,
-        embedding: [],
-        sort_order: 0,
-        is_deleted: false,
-        created_at: now(),
+  // Cấu hình + catalog chỉ ghi khi chưa tồn tại → seed lần 2 không đè
+  // sản phẩm/giá sau khi đã chỉnh sửa thật.
+  if (!storeExists) {
+    await db.runTransaction(async (tx) => {
+      tx.set(storeRef, {
+        name: STORE.name,
+        phone: STORE.phone,
+        address: STORE.address,
+        ...SETTINGS,
         updated_at: now(),
       });
-      for (const [k, v] of Object.entries(p.specs)) {
-        tx.set(ref.collection('specs').doc(k), { value: v });
+
+      for (const z of ZONES) {
+        tx.set(db.collection('delivery_zones').doc(z.id), {
+          name: z.name,
+          city: z.city,
+          district: z.district,
+          delivery_fee: z.delivery_fee,
+          is_active: z.is_active,
+          deleted_at: null,
+        });
       }
-      tx.set(db.collection('inventory').doc(`${STORE.id}_${p.slug}`), {
-        store_id: STORE.id,
-        product_id: p.slug,
-        stock_on_hand: p.stock,
-        stock_reserved: 0,
-        stock_available: p.stock,
-        updated_at: now(),
-      });
-    }
-  });
+
+      for (const c of CATEGORIES) {
+        tx.set(db.collection('categories').doc(c.slug), {
+          name: c.name,
+          sort_order: 0,
+          is_active: true,
+          deleted_at: null,
+        });
+      }
+
+      for (const p of PRODUCTS) {
+        const ref = db.collection('products').doc(p.slug);
+        tx.set(ref, {
+          category_id: p.category,
+          sku: p.sku,
+          name: p.name,
+          description: p.name,
+          price: p.price,
+          image_data: '',
+          is_available: true,
+          embedding: [],
+          sort_order: 0,
+          deleted_at: null,
+          created_at: now(),
+          updated_at: now(),
+        });
+        for (const [k, v] of Object.entries(p.specs)) {
+          tx.set(ref.collection('specs').doc(k), { value: v });
+        }
+        // docID = productId (không còn tiền tố storeId)
+        tx.set(db.collection('inventory').doc(p.slug), {
+          product_id: p.slug,
+          stock_on_hand: p.stock,
+          stock_reserved: 0,
+          stock_available: p.stock,
+          updated_at: now(),
+        });
+        // Nhật ký biến động tồn — admin đối chiếu tồn dựa vào đây.
+        if (p.stock > 0) {
+          tx.set(db.collection('stock_movements').doc(), {
+            product_id: p.slug,
+            type: 'purchase',
+            quantity: p.stock,
+            reference_id: null,
+            reason: 'Nhập kho ban đầu (seed)',
+            actor_id: 'seed',
+            created_at: now(),
+          });
+        }
+      }
+    });
+  }
 
   for (const u of DEMO_USERS) {
     try {
@@ -153,25 +172,24 @@ export const seedDemoData = onCall(async (request) => {
         password: u.password,
         displayName: u.name,
       });
-      await auth.setCustomUserClaims(record.uid, { [u.claim]: true });
       await db.collection('users').doc(record.uid).set({
         email: u.email,
-        name: u.name,
+        display_name: u.name,
         phone: '',
+        role: u.role,
         is_active: true,
         created_at: now(),
+        deleted_at: null,
       });
-      const isStoreRole = u.claim === 'seller' || u.claim === 'shipper' || u.claim === 'viewer';
-      if (isStoreRole) {
-        await db.collection('users').doc(record.uid).collection('roles').doc(u.claim).set({
-          assigned_by: 'seed',
-          assigned_at: now(),
-        });
-      }
     } catch {
       // email/UID đã tồn tại (seed lần 2) → bỏ qua
     }
   }
 
-  return { ok: true, store: STORE.id, products: PRODUCTS.length, users: DEMO_USERS.length };
+  return {
+    ok: true,
+    store: STORE_DOC_ID,
+    products: PRODUCTS.length,
+    users: DEMO_USERS.length,
+  };
 });
