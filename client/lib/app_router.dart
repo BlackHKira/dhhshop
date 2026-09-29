@@ -8,6 +8,7 @@ import 'features/auth/register_screen.dart';
 import 'features/catalog/catalog_models.dart';
 import 'features/catalog/product_detail_screen.dart';
 import 'features/catalog/storefront_screen.dart';
+import 'features/seller/seller_category_screen.dart';
 import 'features/seller/seller_product_form_screen.dart';
 import 'features/seller/seller_screen.dart';
 
@@ -47,6 +48,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: SellerScreen.route,
         builder: (context, state) => const SellerScreen(),
+      ),
+      GoRoute(
+        path: SellerCategoryScreen.route,
+        builder: (context, state) => const SellerCategoryScreen(),
       ),
       GoRoute(
         path: '/seller/product',

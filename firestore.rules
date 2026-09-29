@@ -97,8 +97,24 @@ service cloud.firestore {
        ═══════════════════════════════════════════ */
 
     match /categories/{catId} {
+
+      /* Tên danh mục hiện thẳng lên storefront nên bắt buộc là chuỗi
+         không rỗng và có trần độ dài. Rules không trim được, nên một chuỗi
+         toàn khoảng trắng vẫn lọt — phần chuẩn hoá nằm ở client
+         (core/validation.dart), ở đây chỉ chặn cái rõ ràng là sai. */
+      function validCategory() {
+        return request.resource.data.name is string
+            && request.resource.data.name.size() > 0
+            && request.resource.data.name.size() <= 60
+            && (!('sort_order' in request.resource.data)
+                || (request.resource.data.sort_order is int
+                    && request.resource.data.sort_order >= 0));
+      }
+
       allow read:   if true;
-      allow create, update, delete: if isStaff();
+      allow create: if isStaff() && validCategory();
+      allow update: if isStaff() && validCategory();
+      allow delete: if isStaff();
     }
 
     /* products/{productId} — TUYỆT ĐỐI KHÔNG chứa trường tồn kho.
@@ -108,11 +124,22 @@ service cloud.firestore {
       function validProduct() {
         return request.resource.data.name is string
             && request.resource.data.name.size() > 0
+            && request.resource.data.name.size() <= 120
             && request.resource.data.price is number
             && request.resource.data.price >= 0
             && request.resource.data.category_id is string
             && request.resource.data.sku is string
+            && request.resource.data.sku.size() > 0
+            && request.resource.data.sku.size() <= 40
             && request.resource.data.is_available is bool
+            /* Ảnh base64 nằm ngay trong doc nên Firestore giới hạn 1 MiB cho
+               MỘT tài liệu. Chặn ở đây thay vì để Firestore từ chối bằng
+               thông báo mơ hồ — người bán thấy luôn nguyên nhân và có thể
+               chọn ảnh nhỏ hơn. Ngưỡng phải khớp kMaxImageBase64Length
+               trong client/lib/core/validation.dart. */
+            && (!('image_data' in request.resource.data)
+                || (request.resource.data.image_data is string
+                    && request.resource.data.image_data.size() <= 700000))
             /* chặn lọt field tồn kho vào doc sản phẩm */
             && !request.resource.data.keys().hasAny(
                  ['stock_on_hand', 'stock_reserved', 'stock_available']);
@@ -126,8 +153,17 @@ service cloud.firestore {
 
     /* products/{productId}/specs/{specKey} — ram | rom | screen | battery | ... */
     match /products/{productId}/specs/{specKey} {
+
+      /* Giá trị thông số hiện thẳng lên trang chi tiết nên phải là chuỗi
+         có trần độ dài; trần này khớp kMaxSpecValueLength ở client. */
+      function validSpec() {
+        return request.resource.data.value is string
+            && request.resource.data.value.size() <= 120;
+      }
+
       allow read:  if true;
-      allow write: if isStaff();
+      allow create, update: if isStaff() && validSpec();
+      allow delete: if isStaff();
     }
 
 

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/format.dart';
 import '../catalog/catalog_models.dart';
 import '../catalog/product_detail_screen.dart';
+import 'seller_category_screen.dart';
 import 'seller_controller.dart';
 
 class SellerScreen extends ConsumerWidget {
@@ -19,6 +20,13 @@ class SellerScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Quản lý sản phẩm'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.category_outlined),
+            tooltip: 'Danh mục sản phẩm',
+            onPressed: () => context.push(SellerCategoryScreen.route),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/seller/product'),
