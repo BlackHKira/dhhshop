@@ -76,7 +76,7 @@ const PRODUCTS: ProductSeed[] = [
 ];
 
 export const ping = onRequest((_req, res) => {
-  res.json({ ok: true, service: 'hddshop-functions', time: new Date().toISOString() });
+  res.json({ ok: true, service: 'dhhshop-functions', time: new Date().toISOString() });
 });
 
 export const seedDemoData = onCall(async (request) => {

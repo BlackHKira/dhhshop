@@ -61,7 +61,7 @@ const PRODUCTS = [
     { slug: 'ban-phim-co-a87', category: 'phu-kien', sku: 'KB-A87', name: 'Bàn phím cơ A87 (switch Red)', price: 1290000, stock: 25, specs: { layout: 'TKL 87', switch: 'Red linear', led: 'RGB' } },
 ];
 exports.ping = (0, https_1.onRequest)((_req, res) => {
-    res.json({ ok: true, service: 'hddshop-functions', time: new Date().toISOString() });
+    res.json({ ok: true, service: 'dhhshop-functions', time: new Date().toISOString() });
 });
 exports.seedDemoData = (0, https_1.onCall)(async (request) => {
     const isEmulator = !!process.env.FUNCTIONS_EMULATOR;

@@ -1,4 +1,4 @@
-// Nguồn dữ liệu catalog duy nhất cho HDDShop (Firestore).
+// Nguồn dữ liệu catalog duy nhất cho DHHShop (Firestore).
 // Dùng chung bởi: fetch_product_images.mjs, seed_catalog_extend.mjs.
 //
 // - CATEGORIES: 11 danh mục.
