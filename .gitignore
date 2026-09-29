@@ -16,4 +16,7 @@ node_modules/
 # Secrets
 .env
 .env.*
+# `.env.*` ở trên nuốt luôn file mẫu, nhưng file mẫu phải commit được —
+# nếu không thì người khác clone về không biết cần đặt biến gì.
+!.env.example
 *firebase-adminsdk*.json
