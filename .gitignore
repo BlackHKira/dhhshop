@@ -16,3 +16,4 @@ node_modules/
 # Secrets
 .env
 .env.*
+*firebase-adminsdk*.json

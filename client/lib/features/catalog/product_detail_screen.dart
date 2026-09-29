@@ -43,7 +43,7 @@ class ProductDetailScreen extends ConsumerWidget {
           children: [
             ProductImage(imageData: product.imageData, height: 260),
             const SizedBox(height: 12),
-            Text(
+            SelectableText(
               product.name,
               style: Theme.of(context)
                   .textTheme
@@ -57,7 +57,7 @@ class ProductDetailScreen extends ConsumerWidget {
                 visualDensity: VisualDensity.compact,
               ),
             const SizedBox(height: 8),
-            Text(
+            SelectableText(
               formatVnd(product.price),
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     color: Theme.of(context).colorScheme.error,
@@ -65,7 +65,7 @@ class ProductDetailScreen extends ConsumerWidget {
                   ),
             ),
             const SizedBox(height: 4),
-            Text(
+            SelectableText(
               _stockLabel(product.stockAvailable),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: (product.stockAvailable ?? 0) > 0
@@ -84,9 +84,9 @@ class ProductDetailScreen extends ConsumerWidget {
                       .map(
                         (entry) => ListTile(
                           dense: true,
-                          title: Text(entry.key,
+                          title: SelectableText(entry.key,
                               style: Theme.of(context).textTheme.bodyMedium),
-                          trailing: Text(entry.value,
+                          trailing: SelectableText(entry.value,
                               style: Theme.of(context).textTheme.bodyMedium),
                         ),
                       )
@@ -98,7 +98,7 @@ class ProductDetailScreen extends ConsumerWidget {
             if (product.description.isNotEmpty) ...[
               Text('Mô tả', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              Text(product.description,
+              SelectableText(product.description,
                   style: Theme.of(context).textTheme.bodyMedium),
             ],
           ],

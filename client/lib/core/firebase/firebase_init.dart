@@ -5,12 +5,12 @@ import 'package:flutter/foundation.dart';
 
 import '../../firebase_options.dart';
 
-/// Chạy với Emulator Suite (`firebase emulators:start`) hay project thật?
-/// Default: emulator (dev). Đặt `--dart-define=USE_FIREBASE_EMULATOR=false`
-/// khi chạy với project production demo.
+/// Chạy với production Firebase hay Emulator Suite (`firebase emulators:start`)?
+/// Default: production (mặc định của app). Đặt `--dart-define=USE_FIREBASE_EMULATOR=true`
+/// khi dev/đồ án chạy emulator local.
 const bool useFirebaseEmulators = bool.fromEnvironment(
   'USE_FIREBASE_EMULATOR',
-  defaultValue: true,
+  defaultValue: false,
 );
 
 /// Host của emulator: Android emulator phải dùng `10.0.2.2` để trỏ về máy chủ;

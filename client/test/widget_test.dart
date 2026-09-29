@@ -21,7 +21,7 @@ void main() {
       ),
     );
 
-    expect(find.text('HDDShop'), findsOneWidget);
+    expect(find.text('DHHShop'), findsOneWidget);
     expect(find.text('Đăng nhập để tiếp tục'), findsOneWidget);
     expect(find.text('Đăng nhập'), findsOneWidget);
     expect(find.text('Chưa có tài khoản? Đăng ký'), findsOneWidget);

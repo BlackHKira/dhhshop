@@ -1,11 +1,11 @@
 {
-    "name": "HDDShop",
-    "short_name": "HDDShop",
+    "name": "DHHShop",
+    "short_name": "DHHShop",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "HDDShop — ứng dụng bán hàng đồ điện tử đa nền tảng (Flutter + Firebase).",
+    "description": "DHHShop — ứng dụng bán hàng đồ điện tử đa nền tảng (Flutter + Firebase).",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

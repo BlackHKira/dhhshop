@@ -1,4 +1,4 @@
-# HDDShop client (Flutter — `shop_client`)
+# DHHShop client (Flutter — `shop_client`)
 
 Ứng dụng bán hàng đồ điện tử đa nền tảng (Android + Web) — `client/` — Riverpod, go_router, Firebase SDK.
 
