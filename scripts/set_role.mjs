@@ -1,11 +1,15 @@
-// Gán role (custom claim) cho user bằng Admin SDK — client KHÔNG tự đặt được claims.
+// Gán vai trò cho user bằng Admin SDK — client KHÔNG tự đặt được.
 // Cần firebase-admin (đã có trong functions/):
 //   node scripts/set_role.mjs --email seller@demo.com --role seller
-//   node scripts/set_role.mjs --uid abc123 --role system_admin --service-account ./sa.json
+//   node scripts/set_role.mjs --uid abc123 --role admin --service-account ./sa.json
+//
+// Vai trò nằm ở `users/{uid}.role` (string) — đúng field mà `firestore.rules`
+// đọc qua `function role()`. KHÔNG dùng custom claims: Rules không đọc
+// claims, và đặt claims còn tạo ra một nơi lưu quyền thứ hai dễ lệch nhau.
 //
 // Flag:
-//   --uid <uid> | --email <email>   user cần gán role
-//   --role <seller|shipper|viewer|system_admin|customer>
+//   --uid <uid> | --email <email>   user cần gán vai trò
+//   --role <customer|seller|admin>
 //   --project <id>                  mặc định hddshop-bea07
 //   --service-account <path.json>    nếu không có $GOOGLE_APPLICATION_CREDENTIALS
 
@@ -15,7 +19,7 @@ import path from 'node:path';
 const require = createRequire(new URL('../functions/package.json', import.meta.url));
 const admin = require('firebase-admin');
 
-const VALID_ROLES = new Set(['system_admin', 'customer', 'seller', 'shipper', 'viewer']);
+const VALID_ROLES = new Set(['customer', 'seller', 'admin']);
 
 function parseArgs(argv) {
   const args = { serviceAccount: process.env.GOOGLE_APPLICATION_CREDENTIALS ?? null };
@@ -53,17 +57,13 @@ function main() {
     : admin.auth().getUserByEmail(args.email);
 
   findUser.then(async (record) => {
-    const existing = record.customClaims ?? {};
-    const claims = { ...existing, [role]: true };
-    await admin.auth().setCustomUserClaims(record.uid, claims);
+    // merge: giữ lại các field khác của hồ sơ, chỉ đổi `role`.
     await admin
       .firestore()
       .collection('users')
       .doc(record.uid)
-      .collection('roles')
-      .doc(role)
-      .set({ assigned_by: 'set_role.mjs', assigned_at: admin.firestore.FieldValue.serverTimestamp() });
-    console.log(`OK: ${record.email} (${record.uid}) -> ${role}`);
+      .set({ role }, { merge: true });
+    console.log(`OK: ${record.email} (${record.uid}) -> role=${role}`);
   }).catch((error) => {
     console.error('Lỗi:', error.message);
     process.exit(1);
