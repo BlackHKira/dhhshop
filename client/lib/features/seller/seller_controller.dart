@@ -155,6 +155,174 @@ final categoryUsageProvider = StreamProvider<Map<String, int>>((ref) {
 });
 
 /// ═══════════════════════════════════════════════════════════════
+///  TỒN KHO — điều chỉnh tay (nhập hàng / kiểm kho / trả hàng)
+/// ═══════════════════════════════════════════════════════════════
+
+/// Số tồn của một sản phẩm, đọc từ `inventory/{productId}`.
+class StockRow {
+  const StockRow({
+    required this.productId,
+    required this.productName,
+    required this.stockOnHand,
+    required this.stockReserved,
+    required this.stockAvailable,
+  });
+
+  final String productId;
+  final String productName;
+  final int stockOnHand;
+  final int stockReserved;
+  final int stockAvailable;
+
+  factory StockRow.fromFirestore(
+    String id,
+    Map<String, dynamic> inv,
+    String name,
+  ) {
+    int read(String key) => (inv[key] as num?)?.toInt() ?? 0;
+    return StockRow(
+      productId: id,
+      productName: name,
+      stockOnHand: read('stock_on_hand'),
+      stockReserved: read('stock_reserved'),
+      stockAvailable: read('stock_available'),
+    );
+  }
+}
+
+/// `type` hợp lệ — trùng `validMovement()` trong `firestore.rules`.
+enum MovementType {
+  purchase('purchase', 'Nhập hàng'),
+  adjustment('adjustment', 'Kiểm kho'),
+  returnIn('return', 'Trả hàng'),
+  saleOnline('sale_online', 'Bán online'),
+  reserve('reserve', 'Giữ chỗ'),
+  release('release', 'Nhuyên đơn');
+
+  const MovementType(this.wire, this.label);
+  final String wire;
+  final String label;
+}
+
+final stockRowsProvider = StreamProvider<List<StockRow>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('inventory')
+      .snapshots()
+      .asyncMap((invSnap) async {
+    final names = <String, String>{};
+    for (final doc in (await FirebaseFirestore.instance
+            .collection('products')
+            .get())
+        .docs) {
+      names[doc.id] = (doc.data()['name'] as String?) ?? doc.id;
+    }
+    final rows = invSnap.docs
+        .map((doc) => StockRow.fromFirestore(doc.id, doc.data(), names[doc.id] ?? doc.id))
+        .toList();
+    rows.sort((a, b) => a.productName.compareTo(b.productName));
+    return rows;
+  });
+});
+
+/// Lịch sử biến động tồn, mới nhất trước.
+final stockMovementsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('stock_movements')
+      .orderBy('created_at', descending: true)
+      .limit(50)
+      .snapshots()
+      .map((snap) => snap.docs.map((d) => d.data()).toList());
+});
+
+/// Điều chỉnh tồn kho bằng tay.
+///
+/// Ghi bằng transaction vì phải giữ đúng bất biến hiệu mà
+/// `availableFollowsDelta()` kiểm: đọc tồn cũ rồi mới tính tồn mới, nếu
+/// hai người cùng nhập hàng mà đọc rồi ghi bằng `set` thì người sau ghi đè
+/// số của người trước và tổng tồn sai — mà bất biến hiệu lại vẫn hợp lệ
+/// vì so với chính số vừa ghi.
+///
+/// `delta` dương là tăng (nhập hàng), âm là giảm (trả hàng). Ghi kèm một
+/// dòng `stock_movements` vì Rules không cho sửa / xoá dòng nhật ký.
+///
+/// `onChanged` được gọi sau khi ghi xong để màn hình làm mới danh sách.
+/// Truyền callback thay vì `Ref` để hàm này không phụ thuộc Riverpod —
+/// gọi được từ dialog, từ nút AppBar, hay từ test.
+Future<void> adjustStock({
+  required String productId,
+  required int delta,
+  required MovementType type,
+  required String reason,
+  required void Function() onChanged,
+}) async {
+  if (delta == 0) {
+    throw StateError('Số lượng không được bằng 0.');
+  }
+  final cleanReason = sanitizeText(reason);
+  if (cleanReason.isEmpty) {
+    throw StateError('Phải ghi lý do điều chỉnh tồn kho.');
+  }
+  if (cleanReason.length > kMaxReasonLength) {
+    throw StateError('Lý do tối đa $kMaxReasonLength ký tự.');
+  }
+
+  final fs = FirebaseFirestore.instance;
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) {
+    throw StateError('Chưa đăng nhập nên không điều chỉnh được tồn kho.');
+  }
+
+  final invRef = fs.collection('inventory').doc(productId);
+  await fs.runTransaction((txn) async {
+    final snap = await txn.get(invRef);
+    final inv = snap.data();
+    if (inv == null) {
+      throw StateError('Sản phẩm này chưa có dòng tồn kho để điều chỉnh.');
+    }
+    int read(String key) => (inv[key] as num?)?.toInt() ?? 0;
+    final onHand = read('stock_on_hand');
+    final reserved = read('stock_reserved');
+    final nextOnHand = onHand + delta;
+
+    // Rules chỉ chặn `stock_on_hand >= 0`, nhưng tồn thực không thể âm —
+    // và âm thì `stock_reserved <= stock_on_hand` cũng đỏ. Báo lỗi rõ ràng
+    // ở đây tốt hơn để user nhìn thấy `permission-denied`.
+    if (nextOnHand < 0) {
+      throw StateError(
+        'Tồn thực hiện tại là $onHand, không thể giảm $delta đơn vị.',
+      );
+    }
+    if (reserved > nextOnHand) {
+      throw StateError(
+        'Còn $reserved đơn vị đang được giữ chỗ cho đơn chưa xác nhận, '
+        'nên tồn thực tối thiểu là $reserved.',
+      );
+    }
+
+    final now = FieldValue.serverTimestamp();
+    txn.update(invRef, {
+      'stock_on_hand': nextOnHand,
+      'stock_available': nextOnHand - reserved,
+      'updated_at': now,
+    });
+    // Nhật ký ghi `quantity` là số đơn vị biến động (âm khi trả hàng) và
+    // `note` là lý do cụ thể — Rules chỉ bắt buộc `reason` khác rỗng, phần
+    // ghi rõ hơn thì để ở client.
+    txn.set(fs.collection('stock_movements').doc(), {
+      'product_id': productId,
+      'type': type.wire,
+      'quantity': delta,
+      'reason': cleanReason,
+      'note': cleanReason,
+      'actor_id': uid,
+      'order_id': null,
+      'created_at': now,
+    });
+  });
+  onChanged();
+}
+
+/// ═══════════════════════════════════════════════════════════════
 ///  SẢN PHẨM
 /// ═══════════════════════════════════════════════════════════════
 
