@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/validation.dart';
+
 /// Ba vai trò của hệ thống. Trùng với `validRole()` trong `firestore.rules`
 /// và với §6 của `de-tai-tong-the.md` (đã bỏ `system_admin`, `shipper`,
 /// `viewer` vì cửa hàng tự giao và chỉ có một cửa hàng).
@@ -66,6 +68,13 @@ class AuthError extends AuthState {
   final String message;
 }
 
+/// Đã gửi xong email đặt lại mật khẩu. Tách khỏi `AuthSuccess` vì state này
+/// không đổi phiên đăng nhập — người dùng vẫn đang ở màn login và còn phải
+/// nhập mật khẩu mới.
+class AuthResetSent extends AuthState {
+  const AuthResetSent();
+}
+
 class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
@@ -117,7 +126,12 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
-  Future<void> register(String name, String email, String password) async {
+  Future<void> register(
+    String name,
+    String email,
+    String password,
+    String phone,
+  ) async {
     state = const AuthLoading();
     try {
       final credential =
@@ -137,12 +151,29 @@ class AuthController extends Notifier<AuthState> {
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'display_name': name.trim(),
         'email': user.email ?? '',
-        'phone': '',
+        // `phone` không bắt buộc trong Rules, nhưng điền thì phải đúng dạng
+        // để sổ địa chỉ đối chiếu được — nên chuẩn hoá trước khi ghi.
+        'phone': normalizePhone(phone),
         'role': UserRole.customer.name,
         'is_active': true,
         'created_at': FieldValue.serverTimestamp(),
         'deleted_at': null,
       });
+    } on FirebaseAuthException catch (e) {
+      state = AuthError(_message(e));
+    }
+  }
+
+  /// Gửi email đặt lại mật khẩu. Firebase tự sinh link và gửi đi, không cần
+  /// server riêng — nhưng **không** báo cho người dùng biết tài khoản có tồn
+  /// tại hay không, vì báo thì kẻ xấu dò email đăng ký của người khác.
+  /// `firestore.rules` cũng không có đường để biết ngoài việc thử đăng nhập.
+  Future<void> sendPasswordReset(String email) async {
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: email.trim(),
+      );
+      state = const AuthResetSent();
     } on FirebaseAuthException catch (e) {
       state = AuthError(_message(e));
     }
@@ -165,6 +196,8 @@ class AuthController extends Notifier<AuthState> {
         return 'Mật khẩu quá yếu (tối thiểu 6 ký tự).';
       case 'too-many-requests':
         return 'Quá nhiều lần thử. Hãy thử lại sau.';
+      case 'network-request-failed':
+        return 'Không có mạng. Kiểm tra kết nối rồi thử lại.';
       default:
         return 'Không thể xác thực. Vui lòng thử lại.';
     }
