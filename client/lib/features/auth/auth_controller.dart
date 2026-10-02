@@ -133,6 +133,11 @@ class AuthController extends Notifier<AuthState> {
     String phone,
   ) async {
     state = const AuthLoading();
+    // Giữ lại user vừa tạo ở Firebase Auth, để nếu ghi hồ sơ Firestore hỏng
+    // thì xoá được user đó. Bỏ qua thì còn lại tài khoản mồ côi chiếm email,
+    // và lần đăng ký sau sẽ báo "Email đã được sử dụng" mà không ai hiểu
+    // vì sao.
+    User? created;
     try {
       final credential =
           await FirebaseAuth.instance.createUserWithEmailAndPassword(
@@ -144,6 +149,7 @@ class AuthController extends Notifier<AuthState> {
         state = const AuthError('Không thể tạo tài khoản.');
         return;
       }
+      created = user;
       await user.updateDisplayName(name.trim());
       // Bắt buộc đủ field mà `firestore.rules` đòi ở `users/{uid}` create:
       // role == 'customer', email khác rỗng, is_active == true,
@@ -161,6 +167,25 @@ class AuthController extends Notifier<AuthState> {
       });
     } on FirebaseAuthException catch (e) {
       state = AuthError(_message(e));
+    } on FirebaseException catch (e) {
+      // Lỗi Firestore KHÔNG phải lỗi đăng nhập: trước đây không có nhánh
+      // bắt nó nên lỗi ném ra ngoài, người dùng chỉ thấy app im lặng.
+      final cleaned = await _deleteOrphan(created);
+      state = AuthError(signupFirestoreError(e, cleaned: cleaned));
+    }
+  }
+
+  /// Xoá user Auth đã tạo khi ghi hồ sơ Firestore thất bại.
+  ///
+  /// `createUserWithEmailAndPassword` đăng nhập luôn tài khoản vừa tạo nên
+  /// `user.delete()` chạy được ngay. Trả `true` nếu xoá sạch.
+  Future<bool> _deleteOrphan(User? created) async {
+    if (created == null) return true;
+    try {
+      await created.delete();
+      return true;
+    } on FirebaseAuthException {
+      return false;
     }
   }
 
@@ -202,6 +227,28 @@ class AuthController extends Notifier<AuthState> {
         return 'Không thể xác thực. Vui lòng thử lại.';
     }
   }
+}
+
+/// Thông điệp cho lỗi Firestore khi đăng ký. Nói đúng nguồn lỗi thay vì
+/// dùng chung "không thể xác thực" — lỗi Rules trả về `permission-denied`
+/// chứ không phải lỗi đăng nhập, dán nhãn sai thì người đọc bị hướng sai.
+///
+/// [cleaned] = đã xoá được tài khoản Auth hay chưa. Chưa xoá được thì phải
+/// nhắc người dùng xoá tay, nếu không họ bấm lại sẽ thấy "Email đã được
+/// sử dụng" mà không hiểu vì sao.
+String signupFirestoreError(FirebaseException e, {required bool cleaned}) {
+  final cause = switch (e.code) {
+    'permission-denied' =>
+      'Security Rules từ chối tạo hồ sơ (thiếu field bắt buộc, hoặc Rules đang '
+          'chạy khác với Emulator).',
+    'unavailable' => 'Không có mạng nên không lưu được hồ sơ.',
+    _ => 'Không lưu được hồ sơ (${e.code}).',
+  };
+  final tail = cleaned
+      ? 'Tài khoản vừa tạo đã được xoá, hãy thử lại.'
+      : 'Tài khoản vừa tạo CHƯA xoá được — hãy xoá tay nó trong Firebase '
+          'Console rồi thử lại, nếu không email vẫn bị báo đã dùng.';
+  return '$cause $tail';
 }
 
 final authControllerProvider =
