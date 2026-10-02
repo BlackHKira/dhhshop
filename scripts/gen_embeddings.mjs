@@ -1,8 +1,13 @@
 // Sinh embedding cho catalog để chatbot RAG (F4) truy hồi được.
 //
-//   node --env-file=.env scripts/gen_embeddings.mjs --project hddshop-bea07
-//   node --env-file=.env scripts/gen_embeddings.mjs --project hddshop-bea07 --limit 10
-//   node --env-file=.env scripts/gen_embeddings.mjs --project hddshop-bea07 --dry-run
+//   node --env-file=.env scripts/gen_embeddings.mjs \
+//       --project hddshop-bea07 --service-account C:\path\key.json
+//   node --env-file=.env scripts/gen_embeddings.mjs \
+//       --project hddshop-bea07 --service-account C:\path\key.json --limit 3 --dry-run
+//
+// `--service-account` trỏ tới file JSON tải từ Firebase Console →
+// Project settings → Service accounts. File key KHÔNG commit: giữ ngoài
+// repo và đừng vào `.env` (file này chỉ để key Gemini).
 //
 // Vì sao cần script này:
 //   - `products.embedding` mặc định là mảng rỗng, nên RAG không có gì để
@@ -25,31 +30,53 @@
 // chạy local và đọc từ `.env` đã bị .gitignore chặn, không commit lên GitHub.
 
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const require = createRequire(new URL('../functions/package.json', import.meta.url));
 const admin = require('firebase-admin');
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-// Gemini `text-embedding-004` trả 768 chiều. Đổi model thì phải đổi cả
-// hằng số này — client đọc `embedding[0]` để biết số chiều khi tính cosine.
-const MODEL = 'text-embedding-004';
-const DIM = 768;
+// `text-embedding-004` ĐÃ BỊ GOOGLE THU HỒI — gọi lên trả
+// 404 "is not found for API version v1beta". Thay bằng `gemini-embedding-001`
+// là model embedding ổn định hiện hành, trả **3072 chiều** (đã kiểm bằng
+// một lệnh gọi thật, không đoán theo tài liệu).
+//
+// Đổi model thì phải đổi cả `DIM` — hàm `embed()` bên dưới chặn sai số
+// chiều, vì vector sai chiều thì cosine tính ra sai và RAG trả kết quả bậy.
+const MODEL = 'gemini-embedding-001';
+const DIM = 3072;
 
 // Rate limit phía Gemini: script chạy tuần tự + nghỉ giữa các lần gọi để
 // không bị 429. Chậm hơn nhưng 100 sản phẩm vẫn xong trong vài phút.
 const DELAY_MS = 250;
 
 function parseArgs(argv) {
-  const args = { project: null, limit: 0, force: false, dryRun: false };
+  const args = {
+    project: null,
+    serviceAccount: process.env.GOOGLE_APPLICATION_CREDENTIALS ?? null,
+    limit: 0,
+    force: false,
+    dryRun: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === '--project') args.project = value;
+    if (flag === '--service-account') args.serviceAccount = value;
     if (flag === '--limit') args.limit = Number(value) || 0;
     if (flag === '--force') args.force = true;
     if (flag === '--dry-run') args.dryRun = true;
   }
   return args;
+}
+
+/// `node --env-file=.env` giữ nguyên dấu nháy trong giá trị, nên key trong
+/// `.env` kiểu `GEMINI_API_KEY="AIzaSy..."` sẽ có nháy và API trả 400 mà
+/// thông báo lỗi không nói rõ chỗ. Cắt ở đây cho chắc.
+function readApiKey() {
+  const raw = (process.env.GEMINI_API_KEY ?? '').trim();
+  return raw.replace(/^['"]|['"]$/g, '').trim();
 }
 
 /// Ghép văn bản để nhúng. Chỉ lấy tên + mô tả + thông số: giá và tồn kho
@@ -100,7 +127,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = readApiKey();
   if (!apiKey) {
     console.error('Thiếu GEMINI_API_KEY. Chạy: node --env-file=.env scripts/gen_embeddings.mjs');
     process.exit(1);
@@ -110,22 +137,34 @@ async function main() {
     console.error('Thiếu --project (ví dụ: --project hddshop-bea07).');
     process.exit(1);
   }
-
-  const app = admin.apps.length
-    ? admin.app()
-    : admin.initializeApp({ credential: admin.credential.applicationDefault() });
-  const db = admin.firestore(app);
-  await db.settings({ ignoreUndefinedProperties: true });
-
-  let query = db.collection('products').where('deleted_at', '==', null);
-  if (!args.force) {
-    // Chỉ lấy sản phẩm chưa có embedding. Firestore không so sánh "mảng
-    // rỗng" được bằng query, nên lấy hết rồi lọc trong JS — 100 doc thì
-    // không đáng để đánh đổi độ phức tạp của query.
-    query = query.orderBy('sku');
+  // Nhận đường dẫn tới file key thay vì `applicationDefault()`: cách sau
+  // cần `gcloud login` trước, mà máy này không cài gcloud. Cách này giống
+  // `seed_production.mjs` nên dùng chung một file key.
+  if (!args.serviceAccount) {
+    console.error(
+      'Thiếu service account. Truyền --service-account <đường dẫn tới key.json>\n' +
+        'hoặc đặt GOOGLE_APPLICATION_CREDENTIALS.',
+    );
+    process.exit(1);
   }
-  let snap = await query.get();
+  if (!fs.existsSync(path.resolve(args.serviceAccount))) {
+    console.error(`Không thấy file key: ${args.serviceAccount}`);
+    process.exit(1);
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.cert(path.resolve(args.serviceAccount)),
+    projectId,
+  });
+  const db = admin.firestore();
+
+  // Cố ý KHÔNG `orderBy`: `where('deleted_at','==',null)` một mình đã khớp
+  // index mặc định, còn thêm `orderBy('sku')` thì Firestore đòi composite
+  // index mới — production không có index đó nên query fail trước khi kịp
+  // đọc sản phẩm nào. Sắp xếp tên chỉ để log dễ đọc, không cần index.
+  const snap = await db.collection('products').where('deleted_at', '==', null).get();
   let docs = snap.docs;
+  docs.sort((a, b) => (a.data()?.sku ?? '').localeCompare(b.data()?.sku ?? ''));
   if (args.limit > 0) docs = docs.slice(0, args.limit);
 
   const targets = args.force
