@@ -466,6 +466,8 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
 
     final specsRef = productRef.collection('specs');
     final existingSpecs = await specsRef.get();
+    final before = await productRef.get();
+    final oldPrice = (before.data()?['price'] as num?)?.toDouble();
 
     final batch = fs.batch();
     batch.update(productRef, {
@@ -477,6 +479,24 @@ class SellerProductsNotifier extends AsyncNotifier<List<CatalogProduct>> {
       'image_data': ?imageData,
       'updated_at': FieldValue.serverTimestamp(),
     });
+    // Đổi giá là thao tác nhạy cảm: ai đổi, từ bao nhiêu lên bao nhiêu, phải
+    // để lại dấu vết. `audit_logs` không sửa / không xoá được nên đây là
+    // bản ghi vĩnh viễn. Rules chỉ cho chính người đang thao tác ghi tên
+    // mình (`user_id == request.auth.uid`) — đúng ý: nhật ký ghi THAO TÁC,
+    // không phải chứng thư ai làm.
+    //
+    // Ghi kèm trong batch sản phẩm nên hoặc cả hai thành công, hoặc cả hai
+    // không — không có trường hợp giá đã đổi mà nhật ký thì không có.
+    if (oldPrice != null && oldPrice != price) {
+      batch.set(fs.collection('audit_logs').doc(), {
+        'user_id': _currentUid(),
+        'action': 'update_price',
+        'target_type': 'products',
+        'target_id': id,
+        'detail': '${oldPrice.toInt()} -> ${price.toInt()}',
+        'created_at': FieldValue.serverTimestamp(),
+      });
+    }
     _writeSpecs(batch, productRef, cleanSpecs);
     // Dòng thông số bị gỡ trên form phải bị xoá thật, nếu không chỉ ghi
     // thêm mà không xoá thì thông số cũ vẫn còn trong Firestore và lọt lên
