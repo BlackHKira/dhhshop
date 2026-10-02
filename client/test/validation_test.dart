@@ -145,6 +145,68 @@ void main() {
     });
   });
 
+  group('validateEmail', () {
+    test('chấp nhận dạng email thường', () {
+      expect(validateEmail('a@b.co'), isNull);
+      expect(validateEmail('customer@demo.com'), isNull);
+      expect(validateEmail('ten.05+tag@sub.domain.vn'), isNull);
+    });
+
+    test('chặn thiếu @, thiếu tên miền, hoặc có khoảng trắng', () {
+      expect(validateEmail(''), isNotNull);
+      expect(validateEmail(null), isNotNull);
+      expect(validateEmail('khongco dau'), isNotNull);
+      expect(validateEmail('a@b'), isNotNull);
+      expect(validateEmail('a b@c.com'), isNotNull);
+      expect(validateEmail('@b.com'), isNotNull);
+    });
+  });
+
+  group('normalizePhone', () {
+    test('bỏ khoảng trắng và gạch nối', () {
+      expect(normalizePhone('0912 345 678'), '0912345678');
+      expect(normalizePhone('0912-345-678'), '0912345678');
+    });
+
+    test('đổi mã quốc gia về dạng nội địa', () {
+      expect(normalizePhone('+84912345678'), '0912345678');
+      expect(normalizePhone('84912345678'), '0912345678');
+      expect(normalizePhone('+84 912 345 678'), '0912345678');
+    });
+
+    test('số đã ở dạng nội địa thì giữ nguyên', () {
+      expect(normalizePhone('0912345678'), '0912345678');
+    });
+
+    test('trả chuỗi rỗng cho null thay vì ném lỗi', () {
+      expect(normalizePhone(null), '');
+    });
+  });
+
+  group('validatePhone', () {
+    test('chấp nhận 10 số bắt đầu bằng 0', () {
+      expect(validatePhone('0912345678'), isNull);
+      expect(validatePhone('0912 345 678'), isNull);
+      expect(validatePhone('+84912345678'), isNull);
+    });
+
+    test('chặn rỗng', () {
+      expect(validatePhone(''), isNotNull);
+      expect(validatePhone(null), isNotNull);
+      expect(validatePhone('   '), isNotNull);
+    });
+
+    test('chặn sai độ dài', () {
+      expect(validatePhone('091234567'), isNotNull); // 9 số
+      expect(validatePhone('09123456789'), isNotNull); // 11 số
+    });
+
+    test('chặn số không bắt đầu bằng 0', () {
+      expect(validatePhone('912345678'), isNotNull);
+      expect(validatePhone('1912345678'), isNotNull);
+    });
+  });
+
   group('validateStock', () {
     test('để trống thì hợp lệ (mặc định 0)', () {
       expect(validateStock(''), isNull);

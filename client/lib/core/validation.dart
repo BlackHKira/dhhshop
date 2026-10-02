@@ -137,6 +137,50 @@ String? validatePrice(String? raw) {
   return null;
 }
 
+/// Kiểm tra email dùng chung cho cả hai màn — trả về thông điệp lỗi hoặc
+/// `null` nếu hợp lệ.
+///
+/// Chỉ kiểm hình dạng, KHÔNG kiểm tra tồn tại: không có cách hợp lệ để biết
+/// email có đăng ký hay không mà không gửi yêu cầu tới Firebase, và gửi thì
+/// lộ danh sách email của người dùng khác.
+String? validateEmail(String? raw) {
+  final v = sanitizeText(raw);
+  if (v.isEmpty) return 'Nhập email.';
+  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$').hasMatch(v)) {
+    return 'Email không hợp lệ.';
+  }
+  return null;
+}
+
+/// Chuẩn hoá số điện thoại về dạng lưu: 10 chữ số bắt đầu bằng `0`.
+///
+/// Người dùng hay gõ `0912 345 678`, `+84 912 345 678` hoặc `84912345678`
+/// cho cùng một số. Chuẩn hoá về một dạng thì đối chiếu sổ địa chỉ với hồ
+/// sơ mới so khớp được — nếu lưu thô, `0912345678` và `84912345678` thành
+/// hai người khác nhau.
+String normalizePhone(String? raw) {
+  var s = sanitizeText(raw).replaceAll(RegExp(r'[^0-9+]'), '');
+  if (s.startsWith('+84')) {
+    s = '0${s.substring(3)}';
+  } else if (s.startsWith('84')) {
+    s = '0${s.substring(2)}';
+  }
+  return s;
+}
+
+String? validatePhone(String? raw) {
+  final v = normalizePhone(raw);
+  if (v.isEmpty) return 'Nhập số điện thoại.';
+  // Chỉ kiểm độ dài + đầu số, không liệt kê danh sách đầu số hợp lệ:
+  // danh sách đó dài và thay đổi theo quy hoạch, đặt trong code sẽ hỏng theo
+  // thời gian. Chặn sai chặn người dùng thật thì tệ hơn là bỏ sót một
+  // đầu số không dùng.
+  if (!RegExp(r'^0\d{9}$').hasMatch(v)) {
+    return 'Số điện thoại phải là 10 chữ số bắt đầu bằng 0. Nhập được cả dạng +84.';
+  }
+  return null;
+}
+
 String? validateStock(String? raw) {
   if (sanitizeText(raw).isEmpty) return null;
   final v = parseAmount(raw);
