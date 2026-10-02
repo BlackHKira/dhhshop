@@ -8,6 +8,7 @@ import 'features/auth/register_screen.dart';
 import 'features/catalog/catalog_models.dart';
 import 'features/catalog/product_detail_screen.dart';
 import 'features/catalog/storefront_screen.dart';
+import 'features/admin/admin_controller.dart';
 import 'features/seller/seller_category_screen.dart';
 import 'features/seller/seller_product_form_screen.dart';
 import 'features/seller/seller_screen.dart';
@@ -30,6 +31,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (loggedIn && inSellerArea && !state0.user.isStaff()) {
         return StorefrontScreen.route;
       }
+      // `/admin` chỉ dành cho admin thật, không phải seller: seller đã có
+      // `/seller` để chỉnh tồn và CRUD sản phẩm. Security Rules vẫn là nơi
+      // chặn thật — seller vào được `/admin` thì đọc `audit_logs` sẽ bị từ
+      // chối, nhưng chặn sớm ở đây cho giao diện đúng ngay từ đầu.
+      final inAdminArea = state.matchedLocation.startsWith('/admin');
+      if (loggedIn && inAdminArea && !state0.user.isAdmin()) {
+        return StorefrontScreen.route;
+      }
       return null;
     },
     routes: [
@@ -48,6 +57,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: SellerScreen.route,
         builder: (context, state) => const SellerScreen(),
+      ),
+      GoRoute(
+        path: AdminScreen.route,
+        builder: (context, state) => const AdminScreen(),
       ),
       GoRoute(
         path: SellerCategoryScreen.route,

@@ -34,7 +34,11 @@ const U = {
   khach3: 'khach03',
   seller: 'seller01',
   admin: 'admin01',
-  hacker: 'hacker01'   // role không hợp lệ — phải bị chặn ở mọi nơi
+  hacker: 'hacker01',  // role không hợp lệ — phải bị chặn ở mọi nơi
+  /* user RIÊNG cho phép thử enum role + khoá tài khoản. Tách riêng vì
+     khach02 bị nâng lên seller, còn khach03 phải giữ role customer cho các
+     phép thử quyền khác — dùng lại sẽ làm hỏng kết quả những phép thử đó. */
+  khac4: 'khach04'
 };
 
 /* Rules đòi created_at / updated_at == request.time, nên phải dùng
@@ -105,6 +109,48 @@ async function testUsers() {
     () => set(asCtx(U.seller), 'users', U.khach2, userDoc(U.khach2, 'admin')));
   await cantDo('users · seller KHÔNG xoá tài khoản',
     () => del(asCtx(U.seller), 'users', U.khach2));
+
+  /* --- enum vai trò: admin đổi được role, nhưng chỉ trong danh sách hợp lệ.
+     Trước đây allow update chỉ có isAdmin() nên admin gõ role: 'hacker' là
+     ghi được — tài khoản đó mất HẾT quyền (isCustomer/isAdmin/isStaff đều
+     false) mà chính nó cũng không tự sửa lại được, vì nhánh tự sửa cũng cần
+     isCustomer(). --- */
+  await cantDo('users · admin KHÔNG đặt được role không hợp lệ',
+    () => set(asCtx(U.admin), 'users', U.khac4, userDoc(U.khac4, 'hacker')));
+  await canDo('users · admin nâng được lên admin',
+    () => set(asCtx(U.admin), 'users', U.khac4, userDoc(U.khac4, 'admin')));
+  await canDo('users · admin hạ được xuống customer',
+    () => set(asCtx(U.admin), 'users', U.khac4, userDoc(U.khac4, 'customer')));
+
+  /* --- is_active = false phải THẬT SỰ khoá được tài khoản.
+     Trước đây không helper nào đọc is_active, nên đặt false vẫn giữ nguyên
+     mọi quyền — thao tác khoá tài khoản khi có sự cố là thao tác vô nghĩa. --- */
+  await canDo('users · admin khoá tài khoản được (is_active = false)',
+    () => upd(asCtx(U.admin), 'users', U.khac4, { is_active: false }));
+
+  await cantDo('khoá · KHÔNG tự sửa được hồ sơ của chính mình',
+    () => upd(asCtx(U.khac4), 'users', U.khac4, { display_name: 'Ten Moi' }));
+  await cantDo('khoá · KHÔNG thêm được địa chỉ',
+    () => set(asCtx(U.khac4), 'users', U.khac4, 'addresses', 'a9', {
+      label: 'Nha', receiver_name: 'PMH', phone: '0912345678',
+      address_line: '83 Thai Ha', district: 'Dong Da', city: 'Ha Noi',
+      is_default: true, created_at: NOW(), deleted_at: null }));
+  await cantDo('khoá · KHÔNG đặt hàng được',
+    () => set(asCtx(U.khac4), 'orders', 'LOCKED1', orderDoc(U.khac4)));
+  await cantDo('khoá · KHÔNG đọc được hồ sơ người khác',
+    () => get(asCtx(U.khac4), 'users', U.khach));
+  await cantDo('khoá · KHÔNG xoá được dòng giỏ của chính mình',
+    () => del(asCtx(U.khac4), 'users', U.khac4, 'carts', 'active', 'items', 'p1'));
+
+  /* Cặp đối chứng: khoá KHÔNG có nghĩa mất sạch dữ liệu — vẫn đọc được hồ
+     sơ của chính mình, để app hiện lý do tài khoản bị khoá. */
+  await canDo('khoá · vẫn đọc được hồ sơ của chính mình',
+    () => get(asCtx(U.khac4), 'users', U.khac4));
+
+  await canDo('khoá · admin mở khoá lại được',
+    () => upd(asCtx(U.admin), 'users', U.khac4, { is_active: true }));
+  await canDo('mở khoá · tự sửa hồ sơ lại được',
+    () => upd(asCtx(U.khac4), 'users', U.khac4, { display_name: 'Ten Moi' }));
 }
 
 async function testAddresses() {
@@ -589,6 +635,7 @@ await testEnv.withSecurityRulesDisabled(async ctx => {
   await db.doc('users/' + U.seller).set({ ...userDoc(U.seller, 'seller'), ...at });
   await db.doc('users/' + U.admin).set({ ...userDoc(U.admin, 'admin'), ...at });
   await db.doc('users/' + U.hacker).set({ ...userDoc(U.hacker, 'hacker'), ...at });
+  await db.doc('users/' + U.khac4).set({ ...userDoc(U.khac4, 'customer'), ...at });
   await db.doc('settings/store').set({ name: 'Cua hang DHH', bank_bin: '970422' });
   await db.doc('delivery_zones/ha_noi_dong_da').set({ name: 'Noi thanh', fee: 15000 });
   await db.doc('products/p1').set({

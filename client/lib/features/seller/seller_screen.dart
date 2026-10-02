@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../admin/admin_controller.dart';
+import '../auth/auth_controller.dart';
 import '../catalog/catalog_models.dart';
 import '../catalog/product_detail_screen.dart';
 import 'seller_category_screen.dart';
@@ -16,11 +18,23 @@ class SellerScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final products = ref.watch(sellerProductsProvider);
+    final isAdmin = ref.watch(authControllerProvider) is AuthSuccess &&
+        (ref.read(authControllerProvider) as AuthSuccess).user.isAdmin();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Quản lý sản phẩm'),
         actions: [
+          // Nút quản trị chỉ hiện với admin. Seller đã có đủ nút bên dưới
+          // để nhập hàng, nên không cần thấy màn hình này.
+          if (isAdmin) ...[
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              tooltip: 'Quản trị',
+              onPressed: () => context.push(AdminScreen.route),
+            ),
+            const SizedBox(width: 4),
+          ],
           IconButton(
             icon: const Icon(Icons.category_outlined),
             tooltip: 'Danh mục sản phẩm',

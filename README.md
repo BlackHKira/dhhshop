@@ -1,6 +1,6 @@
 # DHHShop — Ứng dụng bán hàng đồ điện tử (Flutter + Firebase)
 
-Đồ án tốt nghiệp: **Xây dựng ứng dụng bán hàng đồ điện tử đa nền tảng bằng Flutter tích hợp AI Chatbot tư vấn mua sắm (Sử dụng Cloud & LLM API)**.
+Đồ án tốt nghiệp: **Xây dựng ứng dụng bán hàng đồ điện tử đa nền tảng bằng Flutter tích hợp Chatbot tư vấn khách hàng (Sử dụng Cloud & LLM API)**.
 
 ## Stack
 

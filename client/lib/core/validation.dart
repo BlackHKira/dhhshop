@@ -19,6 +19,10 @@ const int kMaxCategoryNameLength = 60;
 const int kMaxSpecKeyLength = 40;
 const int kMaxSpecValueLength = 120;
 
+/// Lý do điều chỉnh tồn kho. Rules chỉ đòi `reason` khác rỗng, nhưng giới
+/// hạn ở client để người nhập không gõ một dấu chấm làm lý do.
+const int kMaxReasonLength = 200;
+
 /// Trần giá và tồn kho. Cùng giới hạn `.size()` của Firestore cho số, và
 /// cũng đủ thực tế: 1 tỷ đồng / 1 triệu đơn vị.
 const int kMaxPriceVnd = 1000000000;

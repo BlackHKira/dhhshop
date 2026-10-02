@@ -20,15 +20,31 @@ service cloud.firestore {
     function now() { return request.time; }
 
     /* Vai trò của người đang đăng nhập, đọc trực tiếp từ doc user.
-       Không dùng custom claims vì cần Admin SDK để đặt, mà MVP không có. */
-    function role() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+       Không dùng custom claims vì cần Admin SDK để đặt, mà MVP không có.
+       userOf() gom đúng MỘT lần get() — không helper nào đọc riêng lần nữa. */
+    function userOf(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
     }
-    function isCustomer() { return role() == 'customer'; }
-    function isAdmin()    { return role() == 'admin'; }
-    /* seller + admin = mọi quyền vận hành cửa hàng */
-    function isStaff()    { return role() in ['seller', 'admin']; }
+    function role() { return userOf(request.auth.uid).role; }
 
+    /* is_active = false là cách khoá tài khoản thay cho xoá (xoá sẽ mất lịch
+       sử đơn + audit). Trước đây KHÔNG helper nào đọc is_active — nên cơ chế
+       khoá được mô tả trong comment dưới đây chưa bao giờ có tác dụng thật:
+       đặt is_active = false vẫn giữ nguyên mọi quyền cũ.
+       Doc không tồn tại → userOf() trả null → null.is_active → lỗi → DENY.
+       Cố ý KHÔNG đặt isActive() vào isSelf(): tài khoản bị khoá vẫn cần đọc
+       được hồ sơ / địa chỉ / đơn của chính mình để app báo lý do bị khoá,
+       nhưng không ghi được gì và không chạm được dữ liệu người khác. */
+    function isActive() { return userOf(request.auth.uid).is_active == true; }
+
+    function isCustomer() { return isActive() && role() == 'customer'; }
+    function isAdmin()    { return isActive() && role() == 'admin'; }
+    /* seller + admin = mọi quyền vận hành cửa hàng */
+    function isStaff()    { return isActive() && role() in ['seller', 'admin']; }
+
+    /* Enum vai trò hợp lệ. Hàm này chỉ có tác dụng ở nơi được GỌI — trước đây
+       nó chỉ xuất hiện trong allow create, mà ở đó đã bị ép role == 'customer'
+       nên không bao giờ là điều kiện quyết định. Xem allow update bên dưới. */
     function validRole(r) { return r in ['customer', 'seller', 'admin']; }
 
 
@@ -50,7 +66,6 @@ service cloud.firestore {
          nâng quyền được. */
       allow create: if isSelf(uid)
                     && request.resource.data.role == 'customer'
-                    && validRole(request.resource.data.role)
                     && request.resource.data.email is string
                     && request.resource.data.email.size() > 0
                     && request.resource.data.is_active == true
@@ -59,14 +74,23 @@ service cloud.firestore {
       /* Sửa hồ sơ: CHỈ admin được sửa bất kỳ tài khoản nào (kể cả đổi role),
          khách chỉ sửa được hồ sơ của chính mình và KHÔNG đổi được role.
          Không dùng isStaff() ở đây — nếu có, seller sẽ tự nâng mình
-         (hoặc nâng bất kỳ ai) lên admin. Đây là leo thang đặc quyền. */
-      allow update: if isAdmin()
+         (hoặc nâng bất kỳ ai) lên admin. Đây là leo thang đặc quyền.
+
+         validRole() là bắt buộc ở nhánh admin: không có nó thì admin gõ
+         role: 'hacker' là ghi được, và tài khoản đó mất HẾT quyền
+         (isCustomer/isAdmin/isStaff đều false) mà chính người đó cũng
+         không tự sửa lại được — vì nhánh tự sửa cũng cần isCustomer().
+         Ngoặc ngoài: && binds chặt hơn ||, nhưng file này cố ý không dựa
+         vào thứ tự mặc định — sai một ngoặc là lộ dữ liệu. */
+      allow update: if (isAdmin() && validRole(request.resource.data.role))
                     || (isSelf(uid)
                         && isCustomer()
                         && request.resource.data.role == resource.data.role);
 
       /* Không cho xoá tài khoản — dùng is_active = false để khoá, giữ lại
-         lịch sử đơn và audit log. Admin xoá được khi thật sự cần. */
+         lịch sử đơn và audit log. Cơ chế này CHẠY THẬT nhờ isActive() trong
+         các helper vai trò: xem phần giải thích ở trên. Admin xoá được khi
+         thật sự cần. */
       allow delete: if isAdmin();
     }
 
@@ -268,7 +292,7 @@ service cloud.firestore {
 
       allow read:   if signedIn() && (isSelf(uid) || isStaff());
       allow create, update: if isSelf(uid) && isCustomer();
-      allow delete: if signedIn() && (isSelf(uid) || isStaff());
+      allow delete: if isActive() && signedIn() && (isSelf(uid) || isStaff());
 
       /* items/{productId} — docID = productId chống trùng dòng hàng */
       match /items/{productId} {
@@ -277,7 +301,7 @@ service cloud.firestore {
                               && request.resource.data.quantity is int
                               && request.resource.data.quantity > 0
                               && request.resource.data.created_at == now();
-        allow delete: if signedIn() && (isSelf(uid) || isStaff());
+        allow delete: if isActive() && signedIn() && (isSelf(uid) || isStaff());
       }
     }
 
